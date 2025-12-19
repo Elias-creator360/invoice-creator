@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,6 +22,7 @@ interface Expense {
 
 export default function ExpensesPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -33,6 +34,13 @@ export default function ExpensesPage() {
     amount: 0,
     payment_method: ''
   })
+
+  useEffect(() => {
+    // Check if we should auto-show the form from Quick Actions
+    if (searchParams.get('new') === 'true') {
+      setShowForm(true)
+    }
+  }, [searchParams])
 
   useEffect(() => {
     // Mock data for demonstration

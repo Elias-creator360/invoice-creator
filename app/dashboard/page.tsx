@@ -122,15 +122,15 @@ export default function Dashboard() {
                 <FileText className="mr-2 h-4 w-4" />
                 Create New Invoice
               </Button>
-              <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/dashboard/expenses/new')}>
+              <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/dashboard/expenses?new=true')}>
                 <Receipt className="mr-2 h-4 w-4" />
                 Record Expense
               </Button>
-              <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/dashboard/customers/new')}>
+              <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/dashboard/customers?new=true')}>
                 <Users className="mr-2 h-4 w-4" />
                 Add Customer
               </Button>
-              <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/dashboard/vendors/new')}>
+              <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/dashboard/vendors?new=true')}>
                 <Building2 className="mr-2 h-4 w-4" />
                 Add Vendor
               </Button>

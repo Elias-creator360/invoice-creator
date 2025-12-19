@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,13 +18,16 @@ interface Customer {
   city: string
   state: string
   zip: string
+  status: 'active' | 'inactive' | 'prospective' | 'tentative'
 }
 
 export default function CustomersPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -32,20 +35,35 @@ export default function CustomersPage() {
     address: '',
     city: '',
     state: '',
-    zip: ''
+    zip: '',
+    status: 'active' as 'active' | 'inactive' | 'prospective' | 'tentative'
   })
+
+  useEffect(() => {
+    // Check if we should auto-show the form from Quick Actions
+    if (searchParams.get('new') === 'true') {
+      setShowForm(true)
+    }
+  }, [searchParams])
 
   useEffect(() => {
     // Load customers from localStorage
     const savedCustomers = localStorage.getItem('customers')
     if (savedCustomers) {
-      setCustomers(JSON.parse(savedCustomers))
+      const parsed = JSON.parse(savedCustomers)
+      // Migrate old customers without status to have 'active' status
+      const migrated = parsed.map((c: Customer) => ({
+        ...c,
+        status: c.status || 'active'
+      }))
+      setCustomers(migrated)
+      localStorage.setItem('customers', JSON.stringify(migrated))
     } else {
       // Default customers if none exist
       const defaultCustomers = [
-        { id: 1, name: 'Acme Corporation', email: 'contact@acme.com', phone: '555-0101', address: '123 Business St', city: 'New York', state: 'NY', zip: '10001' },
-        { id: 2, name: 'TechStart LLC', email: 'hello@techstart.io', phone: '555-0102', address: '456 Innovation Ave', city: 'San Francisco', state: 'CA', zip: '94102' },
-        { id: 3, name: 'Global Industries', email: 'info@global.com', phone: '555-0103', address: '789 Enterprise Blvd', city: 'Chicago', state: 'IL', zip: '60601' }
+        { id: 1, name: 'Acme Corporation', email: 'contact@acme.com', phone: '555-0101', address: '123 Business St', city: 'New York', state: 'NY', zip: '10001', status: 'active' as const },
+        { id: 2, name: 'TechStart LLC', email: 'hello@techstart.io', phone: '555-0102', address: '456 Innovation Ave', city: 'San Francisco', state: 'CA', zip: '94102', status: 'prospective' as const },
+        { id: 3, name: 'Global Industries', email: 'info@global.com', phone: '555-0103', address: '789 Enterprise Blvd', city: 'Chicago', state: 'IL', zip: '60601', status: 'active' as const }
       ]
       setCustomers(defaultCustomers)
       localStorage.setItem('customers', JSON.stringify(defaultCustomers))
@@ -59,15 +77,42 @@ export default function CustomersPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const newCustomer = {
-      id: customers.length > 0 ? Math.max(...customers.map(c => c.id)) + 1 : 1,
-      ...formData
+    let updatedCustomers
+    
+    if (editingId !== null) {
+      // Update existing customer
+      updatedCustomers = customers.map(c => 
+        c.id === editingId ? { ...formData, id: editingId } : c
+      )
+    } else {
+      // Add new customer
+      const newCustomer = {
+        id: customers.length > 0 ? Math.max(...customers.map(c => c.id)) + 1 : 1,
+        ...formData
+      }
+      updatedCustomers = [...customers, newCustomer]
     }
-    const updatedCustomers = [...customers, newCustomer]
+    
     setCustomers(updatedCustomers)
     localStorage.setItem('customers', JSON.stringify(updatedCustomers))
-    setFormData({ name: '', email: '', phone: '', address: '', city: '', state: '', zip: '' })
+    setFormData({ name: '', email: '', phone: '', address: '', city: '', state: '', zip: '', status: 'active' })
     setShowForm(false)
+    setEditingId(null)
+  }
+
+  const handleEdit = (customer: Customer) => {
+    setFormData({
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      address: customer.address,
+      city: customer.city,
+      state: customer.state,
+      zip: customer.zip,
+      status: customer.status
+    })
+    setEditingId(customer.id)
+    setShowForm(true)
   }
 
   const handleDelete = (id: number) => {
@@ -92,8 +137,8 @@ export default function CustomersPage() {
         {showForm && (
           <Card className="mb-6">
             <CardHeader>
-              <CardTitle>New Customer</CardTitle>
-              <CardDescription>Add a new customer to your database</CardDescription>
+              <CardTitle>{editingId !== null ? 'Edit Customer' : 'New Customer'}</CardTitle>
+              <CardDescription>{editingId !== null ? 'Update customer information' : 'Add a new customer to your database'}</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -157,10 +202,29 @@ export default function CustomersPage() {
                       onChange={(e) => setFormData({ ...formData, zip: e.target.value })}
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="status">Status *</Label>
+                    <select
+                      id="status"
+                      value={formData.status}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value as 'active' | 'inactive' | 'prospective' | 'tentative' })}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      required
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                      <option value="prospective">Prospective</option>
+                      <option value="tentative">Tentative</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button type="submit">Save Customer</Button>
-                  <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
+                  <Button type="submit">{editingId !== null ? 'Update Customer' : 'Save Customer'}</Button>
+                  <Button type="button" variant="outline" onClick={() => {
+                    setShowForm(false)
+                    setEditingId(null)
+                    setFormData({ name: '', email: '', phone: '', address: '', city: '', state: '', zip: '', status: 'active' })
+                  }}>
                     Cancel
                   </Button>
                 </div>
@@ -191,6 +255,7 @@ export default function CustomersPage() {
                   <TableHead>Company Name</TableHead>
                   <TableHead>Contact</TableHead>
                   <TableHead>Location</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -213,9 +278,19 @@ export default function CustomersPage() {
                     <TableCell>
                       {customer.city}, {customer.state} {customer.zip}
                     </TableCell>
+                    <TableCell>
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        customer.status === 'active' ? 'bg-green-100 text-green-800' :
+                        customer.status === 'inactive' ? 'bg-gray-100 text-gray-800' :
+                        customer.status === 'prospective' ? 'bg-blue-100 text-blue-800' :
+                        'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {(customer.status || 'active').charAt(0).toUpperCase() + (customer.status || 'active').slice(1)}
+                      </span>
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={() => handleEdit(customer)}>
                           <Edit className="h-4 w-4" />
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => handleDelete(customer.id)}>
