@@ -9,32 +9,8 @@ import { Label } from '@/components/ui/label'
 import { Plus, Minus, Eye } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { jsPDF } from 'jspdf'
-
-interface InvoiceItem {
-  description: string
-  quantity: number
-  rate: number
-  amount: number
-}
-
-interface Customer {
-  id: number
-  name: string
-  email: string
-  phone: string
-  address: string
-  city: string
-  state: string
-  zip: string
-}
-
-interface Product {
-  id: number
-  name: string
-  description: string
-  price: number
-  category: string
-}
+import { customersApi, productsApi, invoicesApi } from '@/lib/api'
+import type { Customer, Product, InvoiceItem } from '@/lib/supabase'
 
 export default function NewInvoicePage() {
   const router = useRouter()
@@ -69,36 +45,21 @@ export default function NewInvoicePage() {
   }
 
   useEffect(() => {
-    // Load customers from localStorage
-    const savedCustomers = localStorage.getItem('customers')
-    if (savedCustomers) {
-      setCustomers(JSON.parse(savedCustomers))
-    } else {
-      // Default customers if none exist
-      const defaultCustomers = [
-        { id: 1, name: 'Acme Corporation', email: 'contact@acme.com', phone: '555-0101', address: '123 Business St', city: 'New York', state: 'NY', zip: '10001' },
-        { id: 2, name: 'TechStart LLC', email: 'hello@techstart.io', phone: '555-0102', address: '456 Innovation Ave', city: 'San Francisco', state: 'CA', zip: '94102' },
-        { id: 3, name: 'Global Industries', email: 'info@global.com', phone: '555-0103', address: '789 Enterprise Blvd', city: 'Chicago', state: 'IL', zip: '60601' }
-      ]
-      setCustomers(defaultCustomers)
-      localStorage.setItem('customers', JSON.stringify(defaultCustomers))
-    }
-
-    // Load products from localStorage
-    const savedProducts = localStorage.getItem('products')
-    if (savedProducts) {
-      setProducts(JSON.parse(savedProducts))
-    } else {
-      // Default products if none exist
-      const defaultProducts = [
-        { id: 1, name: 'IT Services', description: 'Hourly IT consulting and support', price: 150, category: 'Services' },
-        { id: 2, name: 'Web Development', description: 'Custom website development', price: 5000, category: 'Services' },
-        { id: 3, name: 'SEO Optimization', description: 'Monthly SEO services', price: 800, category: 'Marketing' }
-      ]
-      setProducts(defaultProducts)
-      localStorage.setItem('products', JSON.stringify(defaultProducts))
-    }
+    loadData()
   }, [])
+
+  const loadData = async () => {
+    try {
+      const [customersData, productsData] = await Promise.all([
+        customersApi.getAll(),
+        productsApi.getAll()
+      ])
+      setCustomers(customersData)
+      setProducts(productsData)
+    } catch (error) {
+      console.error('Error loading data:', error)
+    }
+  }
 
   const filteredCustomers = customers.filter(customer =>
     customer.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
@@ -158,11 +119,36 @@ export default function NewInvoicePage() {
   const tax = subtotal * 0.14
   const total = subtotal + tax
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // In production, this would save to the backend
-    alert('Invoice created successfully!')
-    router.push('/dashboard/invoices')
+    
+    if (!selectedCustomer) {
+      alert('Please select a customer')
+      return
+    }
+
+    try {
+      const invoiceData = {
+        invoice_number: formData.invoice_number,
+        customer_id: selectedCustomer.id,
+        customer_name: selectedCustomer.name,
+        date: formData.date,
+        due_date: formData.due_date,
+        items: items.filter(item => item.description), // Only include items with description
+        subtotal: subtotal,
+        tax: tax,
+        total: total,
+        status: formData.status,
+        notes: formData.notes
+      }
+
+      await invoicesApi.create(invoiceData)
+      alert('Invoice created successfully!')
+      router.push('/dashboard/invoices')
+    } catch (error) {
+      console.error('Error creating invoice:', error)
+      alert('Failed to create invoice. Please try again.')
+    }
   }
 
   return (

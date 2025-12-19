@@ -8,18 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Plus, Search, Edit, Trash2, Mail, Phone } from 'lucide-react'
-
-interface Customer {
-  id: number
-  name: string
-  email: string
-  phone: string
-  address: string
-  city: string
-  state: string
-  zip: string
-  status: 'active' | 'inactive' | 'prospective' | 'tentative'
-}
+import { customersApi } from '@/lib/api'
+import type { Customer } from '@/lib/supabase'
 
 export default function CustomersPage() {
   const router = useRouter()
@@ -28,6 +18,8 @@ export default function CustomersPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -47,57 +39,49 @@ export default function CustomersPage() {
   }, [searchParams])
 
   useEffect(() => {
-    // Load customers from localStorage
-    const savedCustomers = localStorage.getItem('customers')
-    if (savedCustomers) {
-      const parsed = JSON.parse(savedCustomers)
-      // Migrate old customers without status to have 'active' status
-      const migrated = parsed.map((c: Customer) => ({
-        ...c,
-        status: c.status || 'active'
-      }))
-      setCustomers(migrated)
-      localStorage.setItem('customers', JSON.stringify(migrated))
-    } else {
-      // Default customers if none exist
-      const defaultCustomers = [
-        { id: 1, name: 'Acme Corporation', email: 'contact@acme.com', phone: '555-0101', address: '123 Business St', city: 'New York', state: 'NY', zip: '10001', status: 'active' as const },
-        { id: 2, name: 'TechStart LLC', email: 'hello@techstart.io', phone: '555-0102', address: '456 Innovation Ave', city: 'San Francisco', state: 'CA', zip: '94102', status: 'prospective' as const },
-        { id: 3, name: 'Global Industries', email: 'info@global.com', phone: '555-0103', address: '789 Enterprise Blvd', city: 'Chicago', state: 'IL', zip: '60601', status: 'active' as const }
-      ]
-      setCustomers(defaultCustomers)
-      localStorage.setItem('customers', JSON.stringify(defaultCustomers))
-    }
+    loadCustomers()
   }, [])
+
+  const loadCustomers = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await customersApi.getAll()
+      setCustomers(data)
+    } catch (err) {
+      setError('Failed to load customers. Please check your Supabase configuration.')
+      console.error('Error loading customers:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredCustomers = customers.filter(customer =>
     customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     customer.email.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    let updatedCustomers
-    
-    if (editingId !== null) {
-      // Update existing customer
-      updatedCustomers = customers.map(c => 
-        c.id === editingId ? { ...formData, id: editingId } : c
-      )
-    } else {
-      // Add new customer
-      const newCustomer = {
-        id: customers.length > 0 ? Math.max(...customers.map(c => c.id)) + 1 : 1,
-        ...formData
+    try {
+      setError(null)
+      
+      if (editingId !== null) {
+        // Update existing customer
+        await customersApi.update(editingId, formData)
+      } else {
+        // Add new customer
+        await customersApi.create(formData)
       }
-      updatedCustomers = [...customers, newCustomer]
+      
+      await loadCustomers()
+      setFormData({ name: '', email: '', phone: '', address: '', city: '', state: '', zip: '', status: 'active' })
+      setShowForm(false)
+      setEditingId(null)
+    } catch (err) {
+      setError('Failed to save customer. Please try again.')
+      console.error('Error saving customer:', err)
     }
-    
-    setCustomers(updatedCustomers)
-    localStorage.setItem('customers', JSON.stringify(updatedCustomers))
-    setFormData({ name: '', email: '', phone: '', address: '', city: '', state: '', zip: '', status: 'active' })
-    setShowForm(false)
-    setEditingId(null)
   }
 
   const handleEdit = (customer: Customer) => {
@@ -115,10 +99,25 @@ export default function CustomersPage() {
     setShowForm(true)
   }
 
-  const handleDelete = (id: number) => {
-    const updatedCustomers = customers.filter(c => c.id !== id)
-    setCustomers(updatedCustomers)
-    localStorage.setItem('customers', JSON.stringify(updatedCustomers))
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this customer?')) return
+    
+    try {
+      setError(null)
+      await customersApi.delete(id)
+      await loadCustomers()
+    } catch (err) {
+      setError('Failed to delete customer. Please try again.')
+      console.error('Error deleting customer:', err)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="p-8 flex items-center justify-center">
+        <p className="text-gray-600">Loading customers...</p>
+      </div>
+    )
   }
 
   return (
@@ -133,6 +132,12 @@ export default function CustomersPage() {
             Add Customer
           </Button>
         </div>
+
+        {error && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+            <p className="text-red-800">{error}</p>
+          </div>
+        )}
 
         {showForm && (
           <Card className="mb-6">

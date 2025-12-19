@@ -7,41 +7,53 @@ import { Button } from '@/components/ui/button'
 import { Download, Printer, Mail, Edit } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { jsPDF } from 'jspdf'
-
-interface InvoiceItem {
-  description: string
-  quantity: number
-  rate: number
-  amount: number
-}
-
-interface Invoice {
-  id: number
-  invoice_number: string
-  customer_name: string
-  date: string
-  due_date: string
-  status: string
-  notes?: string
-  items: InvoiceItem[]
-  subtotal: number
-  tax: number
-  total: number
-}
+import { invoicesApi } from '@/lib/api'
+import type { Invoice } from '@/lib/supabase'
 
 export default function InvoiceViewPage() {
   const router = useRouter()
   const params = useParams()
   const [invoice, setInvoice] = useState<Invoice | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Load invoice from localStorage
-    const invoices = JSON.parse(localStorage.getItem('invoices') || '[]')
-    const foundInvoice = invoices.find((inv: Invoice) => inv.id.toString() === params.id)
-    if (foundInvoice) {
-      setInvoice(foundInvoice)
-    }
+    loadInvoice()
   }, [params.id])
+
+  const loadInvoice = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const invoiceId = parseInt(params.id as string)
+      const data = await invoicesApi.getById(invoiceId)
+      setInvoice(data)
+    } catch (err) {
+      setError('Failed to load invoice.')
+      console.error('Error loading invoice:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="p-8 flex items-center justify-center">
+        <p className="text-gray-600">Loading invoice...</p>
+      </div>
+    )
+  }
+
+  if (error || !invoice) {
+    return (
+      <div className="p-8">
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+          <p className="text-red-800">{error || 'Invoice not found'}</p>
+        </div>
+        <Button onClick={() => router.push('/dashboard/invoices')}>Back to Invoices</Button>
+      </div>
+    )
+  }
 
   const handlePrint = () => {
     window.print()
@@ -136,19 +148,17 @@ export default function InvoiceViewPage() {
     doc.save(`${invoice.invoice_number}.pdf`)
   }
 
-  const handleStatusChange = (newStatus: string) => {
+  const handleStatusChange = async (newStatus: string) => {
     if (!invoice) return
     
-    // Update local state
-    const updatedInvoice = { ...invoice, status: newStatus }
-    setInvoice(updatedInvoice)
-    
-    // Update in localStorage
-    const invoices = JSON.parse(localStorage.getItem('invoices') || '[]')
-    const updatedInvoices = invoices.map((inv: Invoice) => 
-      inv.id === invoice.id ? updatedInvoice : inv
-    )
-    localStorage.setItem('invoices', JSON.stringify(updatedInvoices))
+    try {
+      await invoicesApi.updateStatus(invoice.id, newStatus as Invoice['status'])
+      // Update local state
+      setInvoice({ ...invoice, status: newStatus as Invoice['status'] })
+    } catch (error) {
+      console.error('Error updating invoice status:', error)
+      alert('Failed to update invoice status')
+    }
   }
 
   const getStatusColor = (status: string) => {

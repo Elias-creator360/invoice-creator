@@ -8,17 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Plus, Search, Edit, Trash2, Mail, Phone } from 'lucide-react'
-
-interface Vendor {
-  id: number
-  name: string
-  email: string
-  phone: string
-  address: string
-  city: string
-  state: string
-  zip: string
-}
+import { vendorsApi } from '@/lib/api'
+import type { Vendor } from '@/lib/supabase'
 
 export default function VendorsPage() {
   const router = useRouter()
@@ -26,6 +17,9 @@ export default function VendorsPage() {
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -44,32 +38,84 @@ export default function VendorsPage() {
   }, [searchParams])
 
   useEffect(() => {
-    // Mock data for demonstration
-    setVendors([
-      { id: 1, name: 'Office Depot', email: 'contact@officedepot.com', phone: '555-0201', address: '789 Supplier St', city: 'New York', state: 'NY', zip: '10001' },
-      { id: 2, name: 'Staples Inc', email: 'info@staples.com', phone: '555-0202', address: '456 Vendor Ave', city: 'Boston', state: 'MA', zip: '02101' },
-      { id: 3, name: 'AWS', email: 'support@aws.com', phone: '555-0203', address: '123 Cloud Blvd', city: 'Seattle', state: 'WA', zip: '98101' }
-    ])
+    loadVendors()
   }, [])
+
+  const loadVendors = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await vendorsApi.getAll()
+      setVendors(data)
+    } catch (err) {
+      setError('Failed to load vendors. Please check your Supabase configuration.')
+      console.error('Error loading vendors:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredVendors = vendors.filter(vendor =>
     vendor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     vendor.email.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const newVendor = {
-      id: vendors.length + 1,
-      ...formData
+    try {
+      setError(null)
+      
+      if (editingId !== null) {
+        // Update existing vendor
+        await vendorsApi.update(editingId, formData)
+      } else {
+        // Add new vendor
+        await vendorsApi.create(formData)
+      }
+      
+      await loadVendors()
+      setFormData({ name: '', email: '', phone: '', address: '', city: '', state: '', zip: '' })
+      setShowForm(false)
+      setEditingId(null)
+    } catch (err) {
+      setError('Failed to save vendor. Please try again.')
+      console.error('Error saving vendor:', err)
     }
-    setVendors([...vendors, newVendor])
-    setFormData({ name: '', email: '', phone: '', address: '', city: '', state: '', zip: '' })
-    setShowForm(false)
   }
 
-  const handleDelete = (id: number) => {
-    setVendors(vendors.filter(v => v.id !== id))
+  const handleEdit = (vendor: Vendor) => {
+    setFormData({
+      name: vendor.name,
+      email: vendor.email,
+      phone: vendor.phone || '',
+      address: vendor.address || '',
+      city: vendor.city || '',
+      state: vendor.state || '',
+      zip: vendor.zip || ''
+    })
+    setEditingId(vendor.id)
+    setShowForm(true)
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this vendor?')) return
+    
+    try {
+      setError(null)
+      await vendorsApi.delete(id)
+      await loadVendors()
+    } catch (err) {
+      setError('Failed to delete vendor. Please try again.')
+      console.error('Error deleting vendor:', err)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="p-8 flex items-center justify-center">
+        <p className="text-gray-600">Loading vendors...</p>
+      </div>
+    )
   }
 
   return (
@@ -85,11 +131,17 @@ export default function VendorsPage() {
         </Button>
       </div>
 
+      {error && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+          <p className="text-red-800">{error}</p>
+        </div>
+      )}
+
       {showForm && (
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>New Vendor</CardTitle>
-            <CardDescription>Add a new vendor to your database</CardDescription>
+            <CardTitle>{editingId !== null ? 'Edit Vendor' : 'New Vendor'}</CardTitle>
+            <CardDescription>{editingId !== null ? 'Update vendor information' : 'Add a new vendor to your database'}</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -155,8 +207,12 @@ export default function VendorsPage() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button type="submit">Save Vendor</Button>
-                <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
+                <Button type="submit">{editingId !== null ? 'Update Vendor' : 'Save Vendor'}</Button>
+                <Button type="button" variant="outline" onClick={() => {
+                  setShowForm(false)
+                  setEditingId(null)
+                  setFormData({ name: '', email: '', phone: '', address: '', city: '', state: '', zip: '' })
+                }}>
                   Cancel
                 </Button>
               </div>
@@ -214,7 +270,7 @@ export default function VendorsPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="sm">
+                      <Button variant="ghost" size="sm" onClick={() => handleEdit(vendor)}>
                         <Edit className="h-4 w-4" />
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => handleDelete(vendor.id)}>

@@ -13,7 +13,9 @@ import {
   Activity,
   TrendingUp
 } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate } from '@/lib/utils'
+import { customersApi, invoicesApi, expensesApi } from '@/lib/api'
+import type { Invoice, Expense, Customer } from '@/lib/supabase'
 
 interface Stats {
   revenue: number
@@ -21,6 +23,15 @@ interface Stats {
   profit: number
   customers: number
   pendingInvoices: number
+}
+
+interface RecentActivity {
+  id: string
+  type: 'invoice' | 'expense' | 'customer'
+  title: string
+  subtitle: string
+  amount?: number
+  date: string
 }
 
 export default function Dashboard() {
@@ -32,26 +43,95 @@ export default function Dashboard() {
     customers: 0,
     pendingInvoices: 0
   })
+  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchStats()
+    fetchDashboardData()
   }, [])
 
-  const fetchStats = async () => {
+  const fetchDashboardData = async () => {
     try {
-      // For now, using mock data since auth isn't set up yet
-      // In production, this would fetch from the API
+      setLoading(true)
+      
+      // Fetch all data in parallel
+      const [invoices, expenses, customers] = await Promise.all([
+        invoicesApi.getAll(),
+        expensesApi.getAll(),
+        customersApi.getAll()
+      ])
+
+      // Calculate stats
+      const totalRevenue = invoices
+        .filter(inv => inv.status === 'paid')
+        .reduce((sum, inv) => sum + inv.total, 0)
+      
+      const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0)
+      
+      const pendingCount = invoices.filter(
+        inv => inv.status === 'sent' || inv.status === 'draft'
+      ).length
+
       setStats({
-        revenue: 125000,
-        expenses: 45000,
-        profit: 80000,
-        customers: 42,
-        pendingInvoices: 8
+        revenue: totalRevenue,
+        expenses: totalExpenses,
+        profit: totalRevenue - totalExpenses,
+        customers: customers.length,
+        pendingInvoices: pendingCount
       })
+
+      // Build recent activity from invoices, expenses, and customers
+      const activities: RecentActivity[] = []
+
+      // Add recent paid invoices
+      invoices
+        .filter(inv => inv.status === 'paid')
+        .slice(0, 3)
+        .forEach(inv => {
+          activities.push({
+            id: `invoice-${inv.id}`,
+            type: 'invoice',
+            title: `Invoice ${inv.invoice_number} paid`,
+            subtitle: inv.customer_name || 'Customer',
+            amount: inv.total,
+            date: inv.date
+          })
+        })
+
+      // Add recent expenses
+      expenses
+        .slice(0, 2)
+        .forEach(exp => {
+          activities.push({
+            id: `expense-${exp.id}`,
+            type: 'expense',
+            title: exp.description || exp.category,
+            subtitle: exp.vendor_name,
+            amount: -exp.amount,
+            date: exp.date
+          })
+        })
+
+      // Add recent customers
+      customers
+        .slice(0, 2)
+        .forEach(cust => {
+          activities.push({
+            id: `customer-${cust.id}`,
+            type: 'customer',
+            title: 'New customer added',
+            subtitle: cust.name,
+            date: cust.created_at || new Date().toISOString()
+          })
+        })
+
+      // Sort by date and take top 5
+      activities.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      setRecentActivity(activities.slice(0, 5))
+
       setLoading(false)
     } catch (error) {
-      console.error('Error fetching stats:', error)
+      console.error('Error fetching dashboard data:', error)
       setLoading(false)
     }
   }
@@ -143,46 +223,43 @@ export default function Dashboard() {
               <CardDescription>Latest transactions and updates</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between border-b pb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-full bg-green-100 flex items-center justify-center">
-                      <FileText className="h-4 w-4 text-green-600" />
+              {loading ? (
+                <div className="text-center py-8 text-gray-500">Loading activity...</div>
+              ) : recentActivity.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">No recent activity</div>
+              ) : (
+                <div className="space-y-4">
+                  {recentActivity.map((activity, index) => (
+                    <div 
+                      key={activity.id} 
+                      className={`flex items-center justify-between ${index < recentActivity.length - 1 ? 'border-b pb-3' : ''}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                          activity.type === 'invoice' ? 'bg-green-100' :
+                          activity.type === 'expense' ? 'bg-red-100' :
+                          'bg-blue-100'
+                        }`}>
+                          {activity.type === 'invoice' && <FileText className="h-4 w-4 text-green-600" />}
+                          {activity.type === 'expense' && <Receipt className="h-4 w-4 text-red-600" />}
+                          {activity.type === 'customer' && <Users className="h-4 w-4 text-blue-600" />}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">{activity.title}</p>
+                          <p className="text-xs text-gray-500">{activity.subtitle}</p>
+                        </div>
+                      </div>
+                      {activity.amount !== undefined ? (
+                        <span className={`text-sm font-semibold ${activity.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {activity.amount > 0 ? '+' : ''}{formatCurrency(Math.abs(activity.amount))}
+                        </span>
+                      ) : (
+                        <Activity className="h-4 w-4 text-gray-400" />
+                      )}
                     </div>
-                    <div>
-                      <p className="text-sm font-medium">Invoice #1023 paid</p>
-                      <p className="text-xs text-gray-500">Acme Corp</p>
-                    </div>
-                  </div>
-                  <span className="text-sm font-semibold text-green-600">+$5,000</span>
+                  ))}
                 </div>
-                
-                <div className="flex items-center justify-between border-b pb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center">
-                      <Receipt className="h-4 w-4 text-red-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">Office supplies expense</p>
-                      <p className="text-xs text-gray-500">Staples Inc</p>
-                    </div>
-                  </div>
-                  <span className="text-sm font-semibold text-red-600">-$234</span>
-                </div>
-                
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
-                      <Users className="h-4 w-4 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">New customer added</p>
-                      <p className="text-xs text-gray-500">TechStart LLC</p>
-                    </div>
-                  </div>
-                  <Activity className="h-4 w-4 text-gray-400" />
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </div>

@@ -9,63 +9,53 @@ import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Plus, Search, Eye, Trash2, Pencil } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
-
-interface Invoice {
-  id: number
-  invoice_number: string
-  customer_name: string
-  date: string
-  due_date: string
-  status: 'draft' | 'sent' | 'paid' | 'overdue'
-  total: number
-}
+import { invoicesApi } from '@/lib/api'
+import type { Invoice } from '@/lib/supabase'
 
 export default function InvoicesPage() {
   const router = useRouter()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [searchTerm, setSearchTerm] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Load invoices from localStorage
-    const loadInvoices = () => {
-      const savedInvoices = localStorage.getItem('invoices')
-      if (savedInvoices) {
-        setInvoices(JSON.parse(savedInvoices))
-      } else {
-        // Initial mock data if no saved invoices
-        const initialInvoices = [
-          { id: 1, invoice_number: 'INV-1001', customer_name: 'Acme Corporation', date: '2024-12-01', due_date: '2024-12-31', status: 'paid', total: 5000 },
-          { id: 2, invoice_number: 'INV-1002', customer_name: 'TechStart LLC', date: '2024-12-10', due_date: '2025-01-09', status: 'sent', total: 3500 },
-          { id: 3, invoice_number: 'INV-1003', customer_name: 'Global Industries', date: '2024-12-15', due_date: '2025-01-14', status: 'draft', total: 7200 },
-          { id: 4, invoice_number: 'INV-1004', customer_name: 'Acme Corporation', date: '2024-11-15', due_date: '2024-12-15', status: 'overdue', total: 2800 }
-        ]
-        setInvoices(initialInvoices)
-        localStorage.setItem('invoices', JSON.stringify(initialInvoices))
-      }
-    }
-    
     loadInvoices()
-    
-    // Listen for storage changes from other tabs/windows
-    const handleStorageChange = () => {
-      loadInvoices()
-    }
-    
-    window.addEventListener('storage', handleStorageChange)
-    
-    // Poll for changes every second (in case same tab)
-    const interval = setInterval(loadInvoices, 1000)
-    
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-      clearInterval(interval)
-    }
   }, [])
 
-  const handleDelete = (id: number) => {
-    const updatedInvoices = invoices.filter(inv => inv.id !== id)
-    setInvoices(updatedInvoices)
-    localStorage.setItem('invoices', JSON.stringify(updatedInvoices))
+  const loadInvoices = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await invoicesApi.getAll()
+      setInvoices(data)
+    } catch (err) {
+      setError('Failed to load invoices. Please check your Supabase configuration.')
+      console.error('Error loading invoices:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this invoice?')) return
+    
+    try {
+      setError(null)
+      await invoicesApi.delete(id)
+      await loadInvoices()
+    } catch (err) {
+      setError('Failed to delete invoice. Please try again.')
+      console.error('Error deleting invoice:', err)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="p-8 flex items-center justify-center">
+        <p className="text-gray-600">Loading invoices...</p>
+      </div>
+    )
   }
 
   const filteredInvoices = invoices.filter(invoice =>
@@ -95,6 +85,12 @@ export default function InvoicesPage() {
             Create Invoice
           </Button>
         </div>
+
+        {error && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+            <p className="text-red-800">{error}</p>
+          </div>
+        )}
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">

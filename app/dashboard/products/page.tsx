@@ -8,44 +8,42 @@ import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Plus, Search, Edit, Trash2 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-
-interface Product {
-  id: number
-  name: string
-  description: string
-  price: number
-  category: string
-}
+import { productsApi } from '@/lib/api'
+import type { Product } from '@/lib/supabase'
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     price: 0,
-    category: ''
+    category: '',
+    sku: '',
+    stock: 0
   })
 
   useEffect(() => {
-    // Load products from localStorage
-    const savedProducts = localStorage.getItem('products')
-    if (savedProducts) {
-      setProducts(JSON.parse(savedProducts))
-    } else {
-      // Default products if none exist
-      const defaultProducts = [
-        { id: 1, name: 'IT Services', description: 'Hourly IT consulting and support', price: 150, category: 'Services' },
-        { id: 2, name: 'Web Development', description: 'Custom website development', price: 5000, category: 'Services' },
-        { id: 3, name: 'SEO Optimization', description: 'Monthly SEO services', price: 800, category: 'Marketing' },
-        { id: 4, name: 'Cloud Hosting', description: 'Monthly cloud hosting package', price: 50, category: 'Infrastructure' }
-      ]
-      setProducts(defaultProducts)
-      localStorage.setItem('products', JSON.stringify(defaultProducts))
-    }
+    loadProducts()
   }, [])
+
+  const loadProducts = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await productsApi.getAll()
+      setProducts(data)
+    } catch (err) {
+      setError('Failed to load products. Please check your Supabase configuration.')
+      console.error('Error loading products:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredProducts = products.filter(product =>
     product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -53,47 +51,61 @@ export default function ProductsPage() {
     product.category.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (editingId) {
-      // Update existing product
-      const updatedProducts = products.map(p => 
-        p.id === editingId ? { ...p, ...formData } : p
-      )
-      setProducts(updatedProducts)
-      localStorage.setItem('products', JSON.stringify(updatedProducts))
-      setEditingId(null)
-    } else {
-      // Add new product
-      const newProduct = {
-        id: products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1,
-        ...formData
+    try {
+      setError(null)
+      
+      if (editingId !== null) {
+        // Update existing product
+        await productsApi.update(editingId, formData)
+      } else {
+        // Add new product
+        await productsApi.create(formData)
       }
-      const updatedProducts = [...products, newProduct]
-      setProducts(updatedProducts)
-      localStorage.setItem('products', JSON.stringify(updatedProducts))
+      
+      await loadProducts()
+      setFormData({ name: '', description: '', price: 0, category: '', sku: '', stock: 0 })
+      setShowForm(false)
+      setEditingId(null)
+    } catch (err) {
+      setError('Failed to save product. Please try again.')
+      console.error('Error saving product:', err)
     }
-    setFormData({ name: '', description: '', price: 0, category: '' })
-    setShowForm(false)
   }
 
   const handleEdit = (product: Product) => {
     setFormData({
       name: product.name,
-      description: product.description,
+      description: product.description || '',
       price: product.price,
-      category: product.category
+      category: product.category || '',
+      sku: product.sku || '',
+      stock: product.stock || 0
     })
     setEditingId(product.id)
     setShowForm(true)
   }
 
-  const handleDelete = (id: number) => {
-    if (confirm('Are you sure you want to delete this product?')) {
-      const updatedProducts = products.filter(p => p.id !== id)
-      setProducts(updatedProducts)
-      localStorage.setItem('products', JSON.stringify(updatedProducts))
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this product?')) return
+    
+    try {
+      setError(null)
+      await productsApi.delete(id)
+      await loadProducts()
+    } catch (err) {
+      setError('Failed to delete product. Please try again.')
+      console.error('Error deleting product:', err)
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="p-8 flex items-center justify-center">
+        <p className="text-gray-600">Loading products...</p>
+      </div>
+    )
   }
 
   return (
@@ -108,6 +120,12 @@ export default function ProductsPage() {
             Add Product
           </Button>
         </div>
+
+        {error && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+            <p className="text-red-800">{error}</p>
+          </div>
+        )}
 
         {showForm && (
           <Card className="mb-6">

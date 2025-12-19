@@ -9,16 +9,8 @@ import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Plus, Search, Trash2 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
-
-interface Expense {
-  id: number
-  date: string
-  vendor_name: string
-  category: string
-  description: string
-  amount: number
-  payment_method: string
-}
+import { expensesApi } from '@/lib/api'
+import type { Expense } from '@/lib/supabase'
 
 export default function ExpensesPage() {
   const router = useRouter()
@@ -26,6 +18,8 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [showForm, setShowForm] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     vendor_name: '',
@@ -43,13 +37,22 @@ export default function ExpensesPage() {
   }, [searchParams])
 
   useEffect(() => {
-    // Mock data for demonstration
-    setExpenses([
-      { id: 1, date: '2024-12-15', vendor_name: 'Office Depot', category: 'Office Supplies', description: 'Printer paper and pens', amount: 234.50, payment_method: 'Credit Card' },
-      { id: 2, date: '2024-12-14', vendor_name: 'AWS', category: 'Technology', description: 'Cloud hosting - December', amount: 450.00, payment_method: 'Debit Card' },
-      { id: 3, date: '2024-12-10', vendor_name: 'Staples', category: 'Office Supplies', description: 'Desk organizers', amount: 89.99, payment_method: 'Cash' }
-    ])
+    loadExpenses()
   }, [])
+
+  const loadExpenses = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await expensesApi.getAll()
+      setExpenses(data)
+    } catch (err) {
+      setError('Failed to load expenses. Please check your Supabase configuration.')
+      console.error('Error loading expenses:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredExpenses = expenses.filter(expense =>
     expense.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -59,26 +62,46 @@ export default function ExpensesPage() {
 
   const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const newExpense = {
-      id: expenses.length + 1,
-      ...formData
+    try {
+      setError(null)
+      await expensesApi.create(formData)
+      await loadExpenses()
+      setFormData({
+        date: new Date().toISOString().split('T')[0],
+        vendor_name: '',
+        category: '',
+        description: '',
+        amount: 0,
+        payment_method: ''
+      })
+      setShowForm(false)
+    } catch (err) {
+      setError('Failed to save expense. Please try again.')
+      console.error('Error saving expense:', err)
     }
-    setExpenses([...expenses, newExpense])
-    setFormData({
-      date: new Date().toISOString().split('T')[0],
-      vendor_name: '',
-      category: '',
-      description: '',
-      amount: 0,
-      payment_method: ''
-    })
-    setShowForm(false)
   }
 
-  const handleDelete = (id: number) => {
-    setExpenses(expenses.filter(e => e.id !== id))
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this expense?')) return
+    
+    try {
+      setError(null)
+      await expensesApi.delete(id)
+      await loadExpenses()
+    } catch (err) {
+      setError('Failed to delete expense. Please try again.')
+      console.error('Error deleting expense:', err)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="p-8 flex items-center justify-center">
+        <p className="text-gray-600">Loading expenses...</p>
+      </div>
+    )
   }
 
   return (
@@ -93,6 +116,12 @@ export default function ExpensesPage() {
             Add Expense
           </Button>
         </div>
+
+        {error && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+            <p className="text-red-800">{error}</p>
+          </div>
+        )}
 
         {/* Summary Card */}
         <Card className="mb-6">

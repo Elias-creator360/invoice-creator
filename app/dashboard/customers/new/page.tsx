@@ -6,20 +6,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-
-interface Customer {
-  id: number
-  name: string
-  email: string
-  phone: string
-  address: string
-  city: string
-  state: string
-  zip: string
-}
+import { customersApi } from '@/lib/api'
+import type { Customer } from '@/lib/supabase'
 
 export default function NewCustomerPage() {
   const router = useRouter()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -27,28 +20,24 @@ export default function NewCustomerPage() {
     address: '',
     city: '',
     state: '',
-    zip: ''
+    zip: '',
+    status: 'active' as 'active' | 'inactive' | 'prospective' | 'tentative'
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // Load existing customers
-    const savedCustomers = localStorage.getItem('customers')
-    const customers: Customer[] = savedCustomers ? JSON.parse(savedCustomers) : []
-    
-    // Create new customer
-    const newCustomer = {
-      id: customers.length > 0 ? Math.max(...customers.map(c => c.id)) + 1 : 1,
-      ...formData
+    try {
+      setLoading(true)
+      setError(null)
+      await customersApi.create(formData)
+      router.push('/dashboard/customers')
+    } catch (err) {
+      setError('Failed to create customer. Please try again.')
+      console.error('Error creating customer:', err)
+    } finally {
+      setLoading(false)
     }
-    
-    // Save to localStorage
-    const updatedCustomers = [...customers, newCustomer]
-    localStorage.setItem('customers', JSON.stringify(updatedCustomers))
-    
-    // Redirect to customers list
-    router.push('/dashboard/customers')
   }
 
   return (
