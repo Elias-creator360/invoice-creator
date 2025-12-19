@@ -5,7 +5,7 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'QuickBooks Clone - Accounting Software',
+  title: 'Benab Invoices - Accounting Software',
   description: 'Full-featured accounting software with invoicing, expense tracking, and financial reporting',
 }
 

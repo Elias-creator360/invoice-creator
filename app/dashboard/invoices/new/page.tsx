@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Plus, Minus } from 'lucide-react'
+import { Plus, Minus, Eye } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
+import { jsPDF } from 'jspdf'
 
 interface InvoiceItem {
   description: string
@@ -16,8 +17,35 @@ interface InvoiceItem {
   amount: number
 }
 
+interface Customer {
+  id: number
+  name: string
+  email: string
+  phone: string
+  address: string
+  city: string
+  state: string
+  zip: string
+}
+
+interface Product {
+  id: number
+  name: string
+  description: string
+  price: number
+  category: string
+}
+
 export default function NewInvoicePage() {
   const router = useRouter()
+  const [showPreview, setShowPreview] = useState(false)
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [products, setProducts] = useState<Product[]>([])
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false)
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+  const [productSearches, setProductSearches] = useState<{ [key: number]: string }>({})
+  const [showProductDropdown, setShowProductDropdown] = useState<{ [key: number]: boolean }>({})
   const [items, setItems] = useState<InvoiceItem[]>([
     { description: '', quantity: 1, rate: 0, amount: 0 }
   ])
@@ -26,8 +54,84 @@ export default function NewInvoicePage() {
     invoice_number: `INV-${Date.now()}`,
     date: new Date().toISOString().split('T')[0],
     due_date: '',
+    status: 'draft' as 'draft' | 'sent' | 'paid' | 'overdue',
     notes: ''
   })
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'paid': return 'bg-green-100 text-green-800'
+      case 'sent': return 'bg-blue-100 text-blue-800'
+      case 'draft': return 'bg-gray-100 text-gray-800'
+      case 'overdue': return 'bg-red-100 text-red-800'
+      default: return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  useEffect(() => {
+    // Load customers from localStorage
+    const savedCustomers = localStorage.getItem('customers')
+    if (savedCustomers) {
+      setCustomers(JSON.parse(savedCustomers))
+    } else {
+      // Default customers if none exist
+      const defaultCustomers = [
+        { id: 1, name: 'Acme Corporation', email: 'contact@acme.com', phone: '555-0101', address: '123 Business St', city: 'New York', state: 'NY', zip: '10001' },
+        { id: 2, name: 'TechStart LLC', email: 'hello@techstart.io', phone: '555-0102', address: '456 Innovation Ave', city: 'San Francisco', state: 'CA', zip: '94102' },
+        { id: 3, name: 'Global Industries', email: 'info@global.com', phone: '555-0103', address: '789 Enterprise Blvd', city: 'Chicago', state: 'IL', zip: '60601' }
+      ]
+      setCustomers(defaultCustomers)
+      localStorage.setItem('customers', JSON.stringify(defaultCustomers))
+    }
+
+    // Load products from localStorage
+    const savedProducts = localStorage.getItem('products')
+    if (savedProducts) {
+      setProducts(JSON.parse(savedProducts))
+    } else {
+      // Default products if none exist
+      const defaultProducts = [
+        { id: 1, name: 'IT Services', description: 'Hourly IT consulting and support', price: 150, category: 'Services' },
+        { id: 2, name: 'Web Development', description: 'Custom website development', price: 5000, category: 'Services' },
+        { id: 3, name: 'SEO Optimization', description: 'Monthly SEO services', price: 800, category: 'Marketing' }
+      ]
+      setProducts(defaultProducts)
+      localStorage.setItem('products', JSON.stringify(defaultProducts))
+    }
+  }, [])
+
+  const filteredCustomers = customers.filter(customer =>
+    customer.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+    customer.email.toLowerCase().includes(customerSearch.toLowerCase())
+  )
+
+  const handleCustomerSelect = (customer: Customer) => {
+    setSelectedCustomer(customer)
+    setCustomerSearch(customer.name)
+    setFormData({ ...formData, customer_id: customer.name })
+    setShowCustomerDropdown(false)
+  }
+
+  const getFilteredProducts = (index: number) => {
+    const searchTerm = productSearches[index] || ''
+    return products.filter(product =>
+      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.description.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  }
+
+  const handleProductSelect = (index: number, product: Product) => {
+    const newItems = [...items]
+    newItems[index] = {
+      ...newItems[index],
+      description: product.name,
+      rate: product.price,
+      amount: newItems[index].quantity * product.price
+    }
+    setItems(newItems)
+    setProductSearches({ ...productSearches, [index]: product.name })
+    setShowProductDropdown({ ...showProductDropdown, [index]: false })
+  }
 
   const addItem = () => {
     setItems([...items, { description: '', quantity: 1, rate: 0, amount: 0 }])
@@ -78,13 +182,40 @@ export default function NewInvoicePage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
+                    <div className="space-y-2 relative">
                       <Label htmlFor="customer">Customer *</Label>
                       <Input
                         id="customer"
-                        placeholder="Select customer"
+                        placeholder="Search or select customer"
+                        value={customerSearch}
+                        onChange={(e) => {
+                          setCustomerSearch(e.target.value)
+                          setShowCustomerDropdown(true)
+                        }}
+                        onFocus={() => setShowCustomerDropdown(true)}
+                        onBlur={() => {
+                          // Delay to allow click event on dropdown items to fire first
+                          setTimeout(() => setShowCustomerDropdown(false), 200)
+                        }}
                         required
                       />
+                      {showCustomerDropdown && filteredCustomers.length > 0 && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                          {filteredCustomers.map((customer) => (
+                            <div
+                              key={customer.id}
+                              className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
+                              onMouseDown={(e) => {
+                                e.preventDefault() // Prevent blur from firing before click
+                                handleCustomerSelect(customer)
+                              }}
+                            >
+                              <div className="font-medium">{customer.name}</div>
+                              <div className="text-sm text-gray-600">{customer.email}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="invoice_number">Invoice Number</Label>
@@ -115,6 +246,20 @@ export default function NewInvoicePage() {
                         required
                       />
                     </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="status">Status</Label>
+                      <select
+                        id="status"
+                        value={formData.status}
+                        onChange={(e) => setFormData({ ...formData, status: e.target.value as 'draft' | 'sent' | 'paid' | 'overdue' })}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        <option value="draft">Draft</option>
+                        <option value="sent">Sent</option>
+                        <option value="paid">Paid</option>
+                        <option value="overdue">Overdue</option>
+                      </select>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -133,23 +278,48 @@ export default function NewInvoicePage() {
                   <div className="space-y-4">
                     {items.map((item, index) => (
                       <div key={index} className="grid grid-cols-12 gap-4 items-end border-b pb-4">
-                        <div className="col-span-5 space-y-2">
+                        <div className="col-span-5 space-y-2 relative">
                           <Label>Description</Label>
                           <Input
-                            placeholder="Service or product description"
-                            value={item.description}
-                            onChange={(e) => updateItem(index, 'description', e.target.value)}
+                            placeholder="Search or type product/service"
+                            value={productSearches[index] !== undefined ? productSearches[index] : item.description}
+                            onChange={(e) => {
+                              setProductSearches({ ...productSearches, [index]: e.target.value })
+                              updateItem(index, 'description', e.target.value)
+                              setShowProductDropdown({ ...showProductDropdown, [index]: true })
+                            }}
+                            onFocus={() => setShowProductDropdown({ ...showProductDropdown, [index]: true })}
+                            onBlur={() => {
+                              setTimeout(() => setShowProductDropdown({ ...showProductDropdown, [index]: false }), 200)
+                            }}
                             required
                           />
+                          {showProductDropdown[index] && getFilteredProducts(index).length > 0 && (
+                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                              {getFilteredProducts(index).map((product) => (
+                                <div
+                                  key={product.id}
+                                  className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault()
+                                    handleProductSelect(index, product)
+                                  }}
+                                >
+                                  <div className="font-medium">{product.name}</div>
+                                  <div className="text-sm text-gray-600">{product.description} - {formatCurrency(product.price)}</div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         <div className="col-span-2 space-y-2">
                           <Label>Quantity</Label>
                           <Input
                             type="number"
                             min="0"
-                            step="0.01"
-                            value={item.quantity}
-                            onChange={(e) => updateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                            step="1"
+                            value={item.quantity === 0 ? '' : item.quantity}
+                            onChange={(e) => updateItem(index, 'quantity', parseInt(e.target.value) || 0)}
                             required
                           />
                         </div>
@@ -159,7 +329,7 @@ export default function NewInvoicePage() {
                             type="number"
                             min="0"
                             step="0.01"
-                            value={item.rate}
+                            value={item.rate === 0 ? '' : item.rate}
                             onChange={(e) => updateItem(index, 'rate', parseFloat(e.target.value) || 0)}
                             required
                           />
@@ -196,6 +366,104 @@ export default function NewInvoicePage() {
                     />
                   </div>
                 </CardContent>
+              </Card>
+
+              {/* PDF Preview Section */}
+              <Card>
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <CardTitle>Invoice Preview</CardTitle>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setShowPreview(!showPreview)}
+                    >
+                      <Eye className="h-4 w-4 mr-1" />
+                      {showPreview ? 'Hide' : 'Show'} Preview
+                    </Button>
+                  </div>
+                </CardHeader>
+                {showPreview && (
+                  <CardContent>
+                    <div className="border rounded-lg bg-white p-8 shadow-lg">
+                      {/* Invoice Preview */}
+                      <div className="max-w-2xl mx-auto">
+                        <div className="border-b pb-4 mb-6">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h2 className="text-3xl font-bold mb-2">INVOICE</h2>
+                              <p className="text-sm text-gray-600">Invoice #{formData.invoice_number}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm text-gray-600">Date: {formData.date || 'Not set'}</p>
+                              <p className="text-sm text-gray-600">Due: {formData.due_date || 'Not set'}</p>
+                              <span className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(formData.status)}`}>
+                                {formData.status.toUpperCase()}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Bill To */}
+                        <div className="mb-6">
+                          <h3 className="text-sm font-semibold text-gray-600 mb-2">BILL TO:</h3>
+                          <p className="text-lg font-medium">{formData.customer_id || 'Customer Name'}</p>
+                        </div>
+
+                        {/* Items Table */}
+                        <div className="mb-6">
+                          <table className="w-full">
+                            <thead className="border-b-2 border-gray-200">
+                              <tr>
+                                <th className="text-left py-2 text-sm font-semibold text-gray-600">DESCRIPTION</th>
+                                <th className="text-right py-2 text-sm font-semibold text-gray-600">QTY</th>
+                                <th className="text-right py-2 text-sm font-semibold text-gray-600">RATE</th>
+                                <th className="text-right py-2 text-sm font-semibold text-gray-600">AMOUNT</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {items.filter(item => item.description).map((item, index) => (
+                                <tr key={index} className="border-b border-gray-100">
+                                  <td className="py-3">{item.description}</td>
+                                  <td className="text-right py-3">{item.quantity}</td>
+                                  <td className="text-right py-3">{formatCurrency(item.rate)}</td>
+                                  <td className="text-right py-3 font-medium">{formatCurrency(item.amount)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Totals */}
+                        <div className="flex justify-end mb-6">
+                          <div className="w-64">
+                            <div className="flex justify-between py-2 text-sm">
+                              <span className="text-gray-600">Subtotal:</span>
+                              <span className="font-medium">{formatCurrency(subtotal)}</span>
+                            </div>
+                            <div className="flex justify-between py-2 text-sm">
+                              <span className="text-gray-600">VAT (14%):</span>
+                              <span className="font-medium">{formatCurrency(tax)}</span>
+                            </div>
+                            <div className="flex justify-between py-3 border-t-2 border-gray-200">
+                              <span className="font-semibold text-lg">Total:</span>
+                              <span className="font-bold text-xl">{formatCurrency(total)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Notes */}
+                        {formData.notes && (
+                          <div className="border-t pt-4">
+                            <h3 className="text-sm font-semibold text-gray-600 mb-2">NOTES:</h3>
+                            <p className="text-sm text-gray-700">{formData.notes}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                )}
               </Card>
             </div>
 

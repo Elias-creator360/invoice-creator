@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, Search, Eye, Trash2 } from 'lucide-react'
+import { Plus, Search, Eye, Trash2, Pencil } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
 
 interface Invoice {
@@ -179,8 +179,17 @@ export default function InvoicesPage() {
                           variant="ghost" 
                           size="sm"
                           onClick={() => router.push(`/dashboard/invoices/${invoice.id}`)}
+                          title="View invoice"
                         >
                           <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => router.push(`/dashboard/invoices/${invoice.id}/edit`)}
+                          title="Edit invoice"
+                        >
+                          <Pencil className="h-4 w-4" />
                         </Button>
                         <Button 
                           variant="ghost" 
@@ -190,6 +199,7 @@ export default function InvoicesPage() {
                               handleDelete(invoice.id)
                             }
                           }}
+                          title="Delete invoice"
                         >
                           <Trash2 className="h-4 w-4 text-red-600" />
                         </Button>

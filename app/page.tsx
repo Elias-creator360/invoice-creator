@@ -14,7 +14,7 @@ export default function Home() {
         <div className="text-center mb-12">
           <div className="flex justify-center items-center gap-3 mb-6">
             <Building2 className="h-12 w-12 text-blue-600" />
-            <h1 className="text-5xl font-bold text-gray-900">QuickBooks Clone</h1>
+            <h1 className="text-5xl font-bold text-gray-900">Benab Invoices</h1>
           </div>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
             Complete accounting solution for your business with invoicing, expense tracking, and financial reporting

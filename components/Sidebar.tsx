@@ -9,7 +9,8 @@ import {
   CreditCard, 
   TrendingUp,
   Building2,
-  Receipt
+  Receipt,
+  Package
 } from 'lucide-react'
 
 export default function Sidebar() {
@@ -19,6 +20,7 @@ export default function Sidebar() {
   const navItems = [
     { name: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
     { name: 'Customers', icon: Users, href: '/dashboard/customers' },
+    { name: 'Products', icon: Package, href: '/dashboard/products' },
     { name: 'Invoices', icon: FileText, href: '/dashboard/invoices' },
     { name: 'Expenses', icon: Receipt, href: '/dashboard/expenses' },
     { name: 'Vendors', icon: Building2, href: '/dashboard/vendors' },
@@ -38,7 +40,7 @@ export default function Sidebar() {
       <div className="p-6">
         <div className="flex items-center gap-2 mb-8 cursor-pointer" onClick={() => router.push('/dashboard')}>
           <Building2 className="h-8 w-8 text-blue-600" />
-          <h1 className="text-xl font-bold">QuickBooks</h1>
+          <h1 className="text-xl font-bold">Benab Invoices</h1>
         </div>
         
         <nav className="space-y-1">

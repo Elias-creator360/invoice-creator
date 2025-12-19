@@ -36,12 +36,20 @@ export default function CustomersPage() {
   })
 
   useEffect(() => {
-    // Mock data for demonstration
-    setCustomers([
-      { id: 1, name: 'Acme Corporation', email: 'contact@acme.com', phone: '555-0101', address: '123 Business St', city: 'New York', state: 'NY', zip: '10001' },
-      { id: 2, name: 'TechStart LLC', email: 'hello@techstart.io', phone: '555-0102', address: '456 Innovation Ave', city: 'San Francisco', state: 'CA', zip: '94102' },
-      { id: 3, name: 'Global Industries', email: 'info@global.com', phone: '555-0103', address: '789 Enterprise Blvd', city: 'Chicago', state: 'IL', zip: '60601' }
-    ])
+    // Load customers from localStorage
+    const savedCustomers = localStorage.getItem('customers')
+    if (savedCustomers) {
+      setCustomers(JSON.parse(savedCustomers))
+    } else {
+      // Default customers if none exist
+      const defaultCustomers = [
+        { id: 1, name: 'Acme Corporation', email: 'contact@acme.com', phone: '555-0101', address: '123 Business St', city: 'New York', state: 'NY', zip: '10001' },
+        { id: 2, name: 'TechStart LLC', email: 'hello@techstart.io', phone: '555-0102', address: '456 Innovation Ave', city: 'San Francisco', state: 'CA', zip: '94102' },
+        { id: 3, name: 'Global Industries', email: 'info@global.com', phone: '555-0103', address: '789 Enterprise Blvd', city: 'Chicago', state: 'IL', zip: '60601' }
+      ]
+      setCustomers(defaultCustomers)
+      localStorage.setItem('customers', JSON.stringify(defaultCustomers))
+    }
   }, [])
 
   const filteredCustomers = customers.filter(customer =>
@@ -52,16 +60,20 @@ export default function CustomersPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const newCustomer = {
-      id: customers.length + 1,
+      id: customers.length > 0 ? Math.max(...customers.map(c => c.id)) + 1 : 1,
       ...formData
     }
-    setCustomers([...customers, newCustomer])
+    const updatedCustomers = [...customers, newCustomer]
+    setCustomers(updatedCustomers)
+    localStorage.setItem('customers', JSON.stringify(updatedCustomers))
     setFormData({ name: '', email: '', phone: '', address: '', city: '', state: '', zip: '' })
     setShowForm(false)
   }
 
   const handleDelete = (id: number) => {
-    setCustomers(customers.filter(c => c.id !== id))
+    const updatedCustomers = customers.filter(c => c.id !== id)
+    setCustomers(updatedCustomers)
+    localStorage.setItem('customers', JSON.stringify(updatedCustomers))
   }
 
   return (

@@ -1,6 +1,6 @@
-# QuickBooks Clone - Accounting Software
+# Benab Invoices - Accounting Software
 
-A full-featured accounting and business management application built with Next.js, Node.js, and SQLite. This application provides similar functionality to QuickBooks Online, including invoicing, expense tracking, customer management, and financial reporting.
+A full-featured accounting and business management application built with Next.js, Node.js, and SQLite. This application provides invoicing, expense tracking, customer management, and financial reporting.
 
 ## Features
 

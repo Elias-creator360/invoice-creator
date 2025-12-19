@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Download, Printer, Mail, Edit } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { jsPDF } from 'jspdf'
 
 interface InvoiceItem {
   description: string
@@ -47,39 +48,92 @@ export default function InvoiceViewPage() {
   }
 
   const handleDownload = () => {
-    // Create a simple text version for download
     if (!invoice) return
     
-    const content = `
-INVOICE
-Invoice #: ${invoice.invoice_number}
-Date: ${formatDate(invoice.date)}
-Due Date: ${formatDate(invoice.due_date)}
-
-Bill To:
-${invoice.customer_name}
-
-ITEMS:
-${invoice.items.map(item => 
-  `${item.description} - Qty: ${item.quantity} x ${formatCurrency(item.rate)} = ${formatCurrency(item.amount)}`
-).join('\n')}
-
-Subtotal: ${formatCurrency(invoice.subtotal)}
-VAT (14%): ${formatCurrency(invoice.tax)}
-TOTAL: ${formatCurrency(invoice.total)}
-
-${invoice.notes ? `Notes: ${invoice.notes}` : ''}
-    `
-
-    const blob = new Blob([content], { type: 'text/plain' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${invoice.invoice_number}.txt`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    window.URL.revokeObjectURL(url)
+    // Create PDF
+    const doc = new jsPDF()
+    
+    // Set up fonts and colors
+    doc.setFontSize(24)
+    doc.setFont('helvetica', 'bold')
+    doc.text('INVOICE', 20, 20)
+    
+    // Invoice details
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Invoice #: ${invoice.invoice_number}`, 20, 35)
+    doc.text(`Date: ${formatDate(invoice.date)}`, 20, 42)
+    doc.text(`Due Date: ${formatDate(invoice.due_date)}`, 20, 49)
+    
+    // Status
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.text(`Status: ${invoice.status.toUpperCase()}`, 150, 35)
+    
+    // Bill To
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.text('BILL TO:', 20, 65)
+    doc.setFontSize(11)
+    doc.setFont('helvetica', 'normal')
+    doc.text(invoice.customer_name, 20, 73)
+    
+    // Table headers
+    let yPos = 95
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.text('DESCRIPTION', 20, yPos)
+    doc.text('QTY', 120, yPos, { align: 'right' })
+    doc.text('RATE', 150, yPos, { align: 'right' })
+    doc.text('AMOUNT', 190, yPos, { align: 'right' })
+    
+    // Draw line under headers
+    doc.setDrawColor(200, 200, 200)
+    doc.line(20, yPos + 2, 190, yPos + 2)
+    
+    // Items
+    yPos += 10
+    doc.setFont('helvetica', 'normal')
+    invoice.items.forEach((item) => {
+      doc.text(item.description, 20, yPos)
+      doc.text(item.quantity.toString(), 120, yPos, { align: 'right' })
+      doc.text(formatCurrency(item.rate), 150, yPos, { align: 'right' })
+      doc.text(formatCurrency(item.amount), 190, yPos, { align: 'right' })
+      yPos += 8
+    })
+    
+    // Draw line before totals
+    yPos += 5
+    doc.line(120, yPos, 190, yPos)
+    
+    // Totals
+    yPos += 8
+    doc.text('Subtotal:', 120, yPos)
+    doc.text(formatCurrency(invoice.subtotal), 190, yPos, { align: 'right' })
+    
+    yPos += 7
+    doc.text('VAT (14%):', 120, yPos)
+    doc.text(formatCurrency(invoice.tax), 190, yPos, { align: 'right' })
+    
+    yPos += 7
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.text('TOTAL:', 120, yPos)
+    doc.text(formatCurrency(invoice.total), 190, yPos, { align: 'right' })
+    
+    // Notes
+    if (invoice.notes) {
+      yPos += 15
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.text('NOTES:', 20, yPos)
+      doc.setFont('helvetica', 'normal')
+      const splitNotes = doc.splitTextToSize(invoice.notes, 170)
+      doc.text(splitNotes, 20, yPos + 7)
+    }
+    
+    // Save the PDF
+    doc.save(`${invoice.invoice_number}.pdf`)
   }
 
   const handleStatusChange = (newStatus: string) => {
