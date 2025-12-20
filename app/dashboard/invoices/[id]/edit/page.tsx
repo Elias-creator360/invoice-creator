@@ -8,27 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Plus, Minus } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-
-interface InvoiceItem {
-  description: string
-  quantity: number
-  rate: number
-  amount: number
-}
-
-interface Invoice {
-  id: number
-  invoice_number: string
-  customer_name: string
-  date: string
-  due_date: string
-  status: string
-  notes?: string
-  items: InvoiceItem[]
-  subtotal: number
-  tax: number
-  total: number
-}
+import { invoicesApi } from '@/lib/api'
+import type { Invoice, InvoiceItem } from '@/lib/supabase'
 
 export default function EditInvoicePage() {
   const router = useRouter()
@@ -44,24 +25,44 @@ export default function EditInvoicePage() {
     notes: ''
   })
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Load invoice from localStorage
-    const invoices = JSON.parse(localStorage.getItem('invoices') || '[]')
-    const foundInvoice = invoices.find((inv: Invoice) => inv.id.toString() === params.id)
-    
-    if (foundInvoice) {
-      setFormData({
-        customer_name: foundInvoice.customer_name,
-        invoice_number: foundInvoice.invoice_number,
-        date: foundInvoice.date,
-        due_date: foundInvoice.due_date,
-        notes: foundInvoice.notes || ''
-      })
-      setItems(foundInvoice.items)
-    }
-    setLoading(false)
+    fetchInvoice()
   }, [params.id])
+
+  const fetchInvoice = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      const invoice = await invoicesApi.getById(Number(params.id))
+      
+      if (invoice) {
+        setFormData({
+          customer_name: invoice.customer_name,
+          invoice_number: invoice.invoice_number,
+          date: invoice.date,
+          due_date: invoice.due_date,
+          notes: invoice.notes || ''
+        })
+        
+        // Parse items if they are stored as a JSON string, otherwise use directly
+        const parsedItems = typeof invoice.items === 'string' 
+          ? JSON.parse(invoice.items) 
+          : invoice.items || [{ description: '', quantity: 1, rate: 0, amount: 0 }]
+        
+        setItems(parsedItems)
+      } else {
+        setError('Invoice not found')
+      }
+    } catch (error) {
+      console.error('Error fetching invoice:', error)
+      setError('Failed to load invoice. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const addItem = () => {
     setItems([...items, { description: '', quantity: 1, rate: 0, amount: 0 }])
@@ -92,43 +93,53 @@ export default function EditInvoicePage() {
     e.preventDefault()
     
     try {
-      // Get existing invoices from localStorage
-      const invoices = JSON.parse(localStorage.getItem('invoices') || '[]')
+      setLoading(true)
+      setError(null)
       
-      // Update the invoice
-      const updatedInvoices = invoices.map((inv: Invoice) => {
-        if (inv.id.toString() === params.id) {
-          return {
-            ...inv,
-            customer_name: formData.customer_name,
-            invoice_number: formData.invoice_number,
-            date: formData.date,
-            due_date: formData.due_date,
-            notes: formData.notes,
-            items: items.filter(item => item.description.trim() !== ''),
-            subtotal,
-            tax,
-            total
-          }
-        }
-        return inv
+      // Filter out empty items
+      const validItems = items.filter(item => item.description.trim() !== '')
+      
+      // Update the invoice in Supabase
+      await invoicesApi.update(Number(params.id), {
+        customer_name: formData.customer_name,
+        invoice_number: formData.invoice_number,
+        date: formData.date,
+        due_date: formData.due_date,
+        notes: formData.notes,
+        items: validItems,
+        subtotal,
+        tax,
+        total
       })
-      
-      // Save back to localStorage
-      localStorage.setItem('invoices', JSON.stringify(updatedInvoices))
       
       alert('Invoice updated successfully!')
       router.push(`/dashboard/invoices/${params.id}`)
     } catch (error) {
       console.error('Error updating invoice:', error)
+      setError('Error updating invoice. Please try again.')
       alert('Error updating invoice. Please try again.')
+    } finally {
+      setLoading(false)
     }
   }
 
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p>Loading...</p>
+        <p>Loading invoice...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">{error}</p>
+          <Button onClick={() => router.push('/dashboard/invoices')}>
+            Back to Invoices
+          </Button>
+        </div>
       </div>
     )
   }

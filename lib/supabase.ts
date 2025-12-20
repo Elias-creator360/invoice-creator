@@ -65,7 +65,7 @@ export interface InvoiceItem {
   product_id?: number
   description: string
   quantity: number
-  price: number
+  rate: number
   amount: number
 }
 
@@ -76,7 +76,7 @@ export interface Invoice {
   customer_name?: string
   date: string
   due_date: string
-  items: InvoiceItem[]
+  items: InvoiceItem[] | string
   subtotal: number
   tax: number
   total: number
