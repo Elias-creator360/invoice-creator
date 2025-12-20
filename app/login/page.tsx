@@ -8,7 +8,6 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Building2, CheckCircle, AlertCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import bcrypt from 'bcryptjs'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -31,97 +30,63 @@ export default function LoginPage() {
 
     try {
       if (isLogin) {
-        // Login
-        const { data: user, error: fetchError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('email', formData.email)
-          .single()
-
-        if (fetchError || !user) {
-          throw new Error('Invalid email or password. Please check your credentials and try again.')
-        }
-
-        if (!user.is_active) {
-          throw new Error('Your account has been deactivated. Please contact your administrator.')
-        }
-
-        const passwordMatch = await bcrypt.compare(formData.password, user.password)
-        if (!passwordMatch) {
-          throw new Error('Invalid email or password. Please check your credentials and try again.')
-        }
-
-        // Update last login
-        await supabase
-          .from('users')
-          .update({ last_login: new Date().toISOString() })
-          .eq('id', user.id)
-
-        // Store user data
-        localStorage.setItem('userId', user.id.toString())
-        localStorage.setItem('email', user.email)
-        localStorage.setItem('companyName', user.company_name)
-        localStorage.setItem('role', user.role)
-        localStorage.setItem('token', 'supabase-session-' + user.id)
-
-        console.log('Login successful, stored data:', {
-          userId: user.id,
-          email: user.email,
-          role: user.role
+        // Login via backend API (authenticates against users table)
+        const response = await fetch('http://localhost:3001/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: formData.email,
+            password: formData.password
+          })
         })
 
-        // Show success message
-        setSuccess('Login successful! Redirecting to dashboard...')
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.error || 'Invalid email or password. Please check your credentials and try again.')
+        }
 
-        // Small delay to show success message before redirect
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        const data = await response.json()
         
-        router.push('/dashboard')
+        // Store token in localStorage
+        localStorage.setItem('auth_token', data.token)
+
+        console.log('Login successful:', {
+          userId: data.userId,
+          email: data.email,
+          role: data.role
+        })
+
+        setSuccess('Login successful! Redirecting to dashboard...')
+        await new Promise(resolve => setTimeout(resolve, 500))
+        // Force full page reload to trigger AuthProvider check
+        window.location.href = '/dashboard'
       } else {
-        // Register
-        // Check if email already exists
-        const { data: existingUser } = await supabase
-          .from('users')
-          .select('email')
-          .eq('email', formData.email)
-          .single()
-
-        if (existingUser) {
-          throw new Error('An account with this email already exists. Please use a different email or sign in.')
-        }
-
-        const hashedPassword = await bcrypt.hash(formData.password, 10)
-
-        const { data: newUser, error: insertError } = await supabase
-          .from('users')
-          .insert([{
+        // Register via backend API
+        const response = await fetch('http://localhost:3001/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             email: formData.email,
-            password: hashedPassword,
-            company_name: formData.companyName,
-            role: formData.role,
-            is_active: true
-          }])
-          .select()
-          .single()
+            password: formData.password,
+            companyName: formData.companyName,
+            role: formData.role
+          })
+        })
 
-        if (insertError) {
-          throw new Error('Registration failed: ' + (insertError.message || 'Unable to create account. Please try again.'))
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.error || 'Registration failed. Please try again.')
         }
 
-        // Store user data
-        localStorage.setItem('userId', newUser.id.toString())
-        localStorage.setItem('email', newUser.email)
-        localStorage.setItem('companyName', newUser.company_name)
-        localStorage.setItem('role', newUser.role)
-        localStorage.setItem('token', 'supabase-session-' + newUser.id)
+        const data = await response.json()
+        
+        // Store token in localStorage
+        localStorage.setItem('auth_token', data.token)
 
-        // Show success message
         setSuccess('Account created successfully! Redirecting to dashboard...')
-
-        // Small delay to show success message before redirect
-        await new Promise(resolve => setTimeout(resolve, 1000))
-
-        router.push('/dashboard')
+        await new Promise(resolve => setTimeout(resolve, 500))
+        // Force full page reload to trigger AuthProvider check
+        window.location.href = '/dashboard'
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.'

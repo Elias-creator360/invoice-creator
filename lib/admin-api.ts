@@ -11,10 +11,13 @@ import type {
   UpdateRolePermissionsRequest
 } from './admin-types'
 
+import { supabase } from './supabase'
+
 const API_BASE_URL = 'http://localhost:3001/api'
 
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('token')
+const getAuthHeaders = async () => {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token || ''
   return {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`

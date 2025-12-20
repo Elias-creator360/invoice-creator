@@ -1,13 +1,22 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key'
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase credentials not found. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local')
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  console.warn('⚠️  Supabase credentials not found. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local')
+  console.warn('⚠️  The application will not function properly without valid Supabase credentials.')
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+    storageKey: 'invoice-creator-auth',
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined
+  }
+})
 
 // Database types
 export interface Customer {
@@ -65,7 +74,7 @@ export interface InvoiceItem {
   product_id?: number
   description: string
   quantity: number
-  price: number
+  rate: number
   amount: number
 }
 
@@ -76,7 +85,7 @@ export interface Invoice {
   customer_name?: string
   date: string
   due_date: string
-  items: InvoiceItem[]
+  items: InvoiceItem[] | string
   subtotal: number
   tax: number
   total: number

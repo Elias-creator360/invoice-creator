@@ -2,9 +2,10 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
+import { supabase } from './supabase'
 
 interface User {
-  id: number
+  id: string
   email: string
   companyName: string
   role: 'Admin' | 'User'
@@ -12,10 +13,10 @@ interface User {
 
 interface AuthContextType {
   user: User | null
-  token: string | null
+  session: any
   loading: boolean
-  login: (token: string, userData: User) => void
-  logout: () => void
+  login: (email: string, password: string) => Promise<void>
+  logout: () => Promise<void>
   isAuthenticated: boolean
   isAdmin: boolean
 }
@@ -24,85 +25,78 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [token, setToken] = useState<string | null>(null)
+  const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
 
   useEffect(() => {
-    // Check if user is logged in on mount
-    const storedToken = localStorage.getItem('token')
-    const storedUserId = localStorage.getItem('userId')
-    const storedEmail = localStorage.getItem('email')
-    const storedCompanyName = localStorage.getItem('companyName')
-    const storedRole = localStorage.getItem('role') as 'Admin' | 'User'
-
-    console.log('Auth check:', { 
-      hasToken: !!storedToken, 
-      hasUserId: !!storedUserId, 
-      hasEmail: !!storedEmail,
-      hasCompanyName: !!storedCompanyName,
-      hasRole: !!storedRole 
-    })
-
-    if (storedToken && storedUserId && storedEmail && storedCompanyName && storedRole) {
-      setToken(storedToken)
-      setUser({
-        id: parseInt(storedUserId),
-        email: storedEmail,
-        companyName: storedCompanyName,
-        role: storedRole
-      })
-      console.log('User authenticated from localStorage')
+    // Check for stored token on mount
+    const storedToken = localStorage.getItem('auth_token')
+    if (storedToken) {
+      setSession({ access_token: storedToken })
+      loadUserData(storedToken)
     } else {
-      console.log('No valid session found')
+      setLoading(false)
     }
-    
-    setLoading(false)
   }, [])
 
-  const login = (newToken: string, userData: User) => {
-    setToken(newToken)
-    setUser(userData)
-    localStorage.setItem('token', newToken)
-    localStorage.setItem('userId', userData.id.toString())
-    localStorage.setItem('email', userData.email)
-    localStorage.setItem('companyName', userData.companyName)
-    localStorage.setItem('role', userData.role)
+  const loadUserData = async (token: string) => {
+    try {
+      // Fetch user details from backend API
+      const response = await fetch('http://localhost:3001/api/auth/me', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to load user data')
+      }
+
+      const userData = await response.json()
+      
+      setUser({
+        id: userData.id.toString(),
+        email: userData.email,
+        companyName: userData.company_name,
+        role: userData.role as 'Admin' | 'User'
+      })
+    } catch (error) {
+      console.error('Error loading user data:', error)
+      // Clear invalid token
+      localStorage.removeItem('auth_token')
+      setUser(null)
+      setSession(null)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const login = async (email: string, password: string) => {
+    // We'll handle the actual login in the login page component
+    // This is just a placeholder for the context API
+    throw new Error('Use login page for authentication')
   }
 
   const logout = async () => {
     try {
-      // Call logout endpoint
-      if (token) {
-        await fetch('http://localhost:3001/api/auth/logout', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        })
-      }
+      // Clear localStorage token
+      localStorage.removeItem('auth_token')
+      setUser(null)
+      setSession(null)
+      router.push('/login')
     } catch (error) {
       console.error('Logout error:', error)
-    } finally {
-      // Clear local storage and state
-      localStorage.removeItem('token')
-      localStorage.removeItem('userId')
-      localStorage.removeItem('email')
-      localStorage.removeItem('companyName')
-      localStorage.removeItem('role')
-      setToken(null)
-      setUser(null)
-      router.push('/login')
     }
   }
 
   const value = {
     user,
-    token,
+    session,
     loading,
     login,
     logout,
-    isAuthenticated: !!token && !!user,
+    isAuthenticated: !!user,
     isAdmin: user?.role === 'Admin'
   }
 

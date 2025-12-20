@@ -1,10 +1,17 @@
 import { supabase } from './supabase'
 import type { Customer, Vendor, Product, Expense, Invoice, Transaction } from './supabase'
 
+// Helper to get Supabase client (auth token handled by backend)
+// Frontend uses Supabase for direct database access with anon key
+function getAuthenticatedSupabase() {
+  return supabase
+}
+
 // Customers API
 export const customersApi = {
   async getAll(): Promise<Customer[]> {
-    const { data, error } = await supabase
+    const client = getAuthenticatedSupabase()
+    const { data, error } = await client
       .from('customers')
       .select('*')
       .order('created_at', { ascending: false })

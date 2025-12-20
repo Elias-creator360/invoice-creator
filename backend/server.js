@@ -1,308 +1,45 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const initSqlJs = require('sql.js');
-const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { createClient } = require('@supabase/supabase-js');
+const path = require('path');
 
-dotenv.config();
+// Load environment variables from parent directory .env.local first, then .env
+dotenv.config({ path: path.join(__dirname, '..', '.env.local') });
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+dotenv.config(); // Also load from current directory if exists
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 
+// Initialize Supabase client with SERVICE ROLE KEY for backend operations
+// Backend uses service role key to bypass RLS and perform admin operations
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+console.log('Environment check:', {
+  hasUrl: !!supabaseUrl,
+  hasServiceKey: !!supabaseServiceKey,
+  url: supabaseUrl ? `${supabaseUrl.substring(0, 20)}...` : 'missing'
+});
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('⚠️  Supabase credentials not found in environment variables');
+  console.error('Make sure .env.local exists in the parent directory with:');
+  console.error('NEXT_PUBLIC_SUPABASE_URL=your_url');
+  console.error('SUPABASE_SERVICE_ROLE_KEY=your_service_role_key');
+  console.error('Note: Backend uses SERVICE ROLE KEY, not anon key!');
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
-
-// Database instance
-let db;
-const DB_PATH = './database.db';
-
-// Initialize Database
-async function initDatabase() {
-  const SQL = await initSqlJs();
-  
-  // Load existing database or create new one
-  if (fs.existsSync(DB_PATH)) {
-    const buffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(buffer);
-  } else {
-    db = new SQL.Database();
-  }
-  
-  // Create tables
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      company_name TEXT NOT NULL,
-      role TEXT DEFAULT 'User' CHECK(role IN ('Admin', 'User')),
-      is_active INTEGER DEFAULT 1,
-      last_login DATETIME,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // Create roles table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS roles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT UNIQUE NOT NULL,
-      description TEXT,
-      is_system INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // Create permissions table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS permissions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      page_name TEXT NOT NULL,
-      page_path TEXT NOT NULL,
-      description TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // Create role_permissions table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS role_permissions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      role_id INTEGER NOT NULL,
-      permission_id INTEGER NOT NULL,
-      access_level TEXT NOT NULL CHECK(access_level IN ('none', 'view', 'edit')),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
-      FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
-      UNIQUE(role_id, permission_id)
-    )
-  `);
-
-  // Create user_roles table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS user_roles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      role_id INTEGER NOT NULL,
-      assigned_by INTEGER,
-      assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
-      FOREIGN KEY (assigned_by) REFERENCES users(id),
-      UNIQUE(user_id, role_id)
-    )
-  `);
-
-  // Customers table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS customers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      email TEXT,
-      phone TEXT,
-      address TEXT,
-      city TEXT,
-      state TEXT,
-      zip TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
-
-  // Vendors table
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS vendors (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      email TEXT,
-      phone TEXT,
-      address TEXT,
-      city TEXT,
-      state TEXT,
-      zip TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
-
-  // Invoices table
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS invoices (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      customer_id INTEGER NOT NULL,
-      invoice_number TEXT UNIQUE NOT NULL,
-      date DATE NOT NULL,
-      due_date DATE NOT NULL,
-      status TEXT DEFAULT 'draft',
-      subtotal REAL NOT NULL,
-      tax REAL DEFAULT 0,
-      total REAL NOT NULL,
-      notes TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (customer_id) REFERENCES customers(id)
-    )
-  `);
-
-  // Invoice items table
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS invoice_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      invoice_id INTEGER NOT NULL,
-      description TEXT NOT NULL,
-      quantity REAL NOT NULL,
-      rate REAL NOT NULL,
-      amount REAL NOT NULL,
-      FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
-    )
-  `);
-
-  // Expenses table
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS expenses (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      vendor_id INTEGER,
-      date DATE NOT NULL,
-      category TEXT NOT NULL,
-      description TEXT NOT NULL,
-      amount REAL NOT NULL,
-      payment_method TEXT,
-      receipt_url TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (vendor_id) REFERENCES vendors(id)
-    )
-  `);
-
-  // Transactions table
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      date DATE NOT NULL,
-      type TEXT NOT NULL,
-      category TEXT NOT NULL,
-      description TEXT NOT NULL,
-      amount REAL NOT NULL,
-      reference_id INTEGER,
-      reference_type TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
-
-  console.log('Database initialized successfully');
-  
-  // Initialize default roles and permissions if they don't exist
-  initializeDefaultRolesAndPermissions();
-}
-
-// Initialize default roles and permissions
-function initializeDefaultRolesAndPermissions() {
-  try {
-    // Insert default roles
-    const rolesCount = db.prepare('SELECT COUNT(*) as count FROM roles').get();
-    if (rolesCount.count === 0) {
-      const roleStmt = db.prepare('INSERT INTO roles (name, description, is_system) VALUES (?, ?, ?)');
-      roleStmt.run('Admin', 'Full system access with all permissions', 1);
-      roleStmt.run('User', 'Standard user with basic permissions', 1);
-      roleStmt.run('Manager', 'Manager with extended permissions', 0);
-      roleStmt.run('Accountant', 'Financial data access only', 0);
-      roleStmt.run('Sales', 'Customer and invoice management', 0);
-      console.log('Default roles created');
-    }
-
-    // Insert default permissions
-    const permCount = db.prepare('SELECT COUNT(*) as count FROM permissions').get();
-    if (permCount.count === 0) {
-      const permStmt = db.prepare('INSERT INTO permissions (page_name, page_path, description) VALUES (?, ?, ?)');
-      permStmt.run('Dashboard', '/dashboard', 'Main dashboard with statistics');
-      permStmt.run('Customers', '/dashboard/customers', 'Customer management');
-      permStmt.run('Products', '/dashboard/products', 'Product catalog management');
-      permStmt.run('Invoices', '/dashboard/invoices', 'Invoice creation and management');
-      permStmt.run('Expenses', '/dashboard/expenses', 'Expense tracking');
-      permStmt.run('Vendors', '/dashboard/vendors', 'Vendor management');
-      permStmt.run('Transactions', '/dashboard/transactions', 'Transaction history');
-      permStmt.run('Reports', '/dashboard/reports', 'Financial reports');
-      permStmt.run('Admin Panel', '/dashboard/admin', 'User and role management');
-      console.log('Default permissions created');
-
-      // Set up role permissions
-      setupDefaultRolePermissions();
-    }
-  } catch (error) {
-    console.error('Error initializing roles and permissions:', error);
-  }
-}
-
-function setupDefaultRolePermissions() {
-  try {
-    const permissions = db.prepare('SELECT * FROM permissions').all();
-    const rpStmt = db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id, access_level) VALUES (?, ?, ?)');
-
-    // Admin role - full access
-    permissions.forEach(perm => {
-      rpStmt.run(1, perm.id, 'edit');
-    });
-
-    // User role - limited access
-    permissions.forEach(perm => {
-      let access = 'view';
-      if (['Dashboard', 'Reports', 'Transactions'].includes(perm.page_name)) {
-        access = 'view';
-      } else if (['Customers', 'Products', 'Invoices', 'Expenses', 'Vendors'].includes(perm.page_name)) {
-        access = 'edit';
-      } else if (perm.page_name === 'Admin Panel') {
-        access = 'none';
-      }
-      rpStmt.run(2, perm.id, access);
-    });
-
-    // Manager role - most access except admin panel
-    permissions.forEach(perm => {
-      const access = perm.page_name === 'Admin Panel' ? 'none' : 'edit';
-      rpStmt.run(3, perm.id, access);
-    });
-
-    // Accountant role - financial focus
-    permissions.forEach(perm => {
-      let access = 'view';
-      if (['Expenses', 'Transactions', 'Reports', 'Invoices'].includes(perm.page_name)) {
-        access = 'edit';
-      } else if (['Products', 'Admin Panel'].includes(perm.page_name)) {
-        access = 'none';
-      }
-      rpStmt.run(4, perm.id, access);
-    });
-
-    // Sales role - customer and invoice focus
-    permissions.forEach(perm => {
-      let access = 'view';
-      if (['Customers', 'Invoices', 'Products'].includes(perm.page_name)) {
-        access = 'edit';
-      } else if (['Expenses', 'Vendors', 'Transactions', 'Admin Panel'].includes(perm.page_name)) {
-        access = 'none';
-      }
-      rpStmt.run(5, perm.id, access);
-    });
-
-    console.log('Default role permissions set up');
-  } catch (error) {
-    console.error('Error setting up role permissions:', error);
-  }
-}
-
-initDatabase();
 
 // Auth middleware
 function authMiddleware(req, res, next) {
@@ -330,7 +67,15 @@ function adminMiddleware(req, res, next) {
   next();
 }
 
-// Auth routes
+// Admin middleware - only allows Admin users
+function adminMiddleware(req, res, next) {
+  if (req.userRole !== 'Admin') {
+    return res.status(403).json({ error: 'Access denied. Admin role required.' });
+  }
+  next();
+}
+
+// Authentication Routes
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password, companyName, role = 'User' } = req.body;
@@ -340,17 +85,39 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Invalid role. Must be Admin or User' });
     }
     
+    // Check if user exists
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('email')
+      .eq('email', email)
+      .single();
+      
+    if (existingUser) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
+    
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    const stmt = db.prepare('INSERT INTO users (email, password, company_name, role) VALUES (?, ?, ?, ?)');
-    const result = stmt.run(email, hashedPassword, companyName, role);
+    // Insert into Supabase
+    const { data: newUser, error } = await supabase
+      .from('users')
+      .insert([{
+        email,
+        password: hashedPassword,
+        company_name: companyName,
+        role,
+        is_active: true
+      }])
+      .select()
+      .single();
+      
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
     
-    const token = jwt.sign({ userId: result.lastInsertRowid, role }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: newUser.id, role }, JWT_SECRET, { expiresIn: '7d' });
     
-    // Update last login
-    db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(result.lastInsertRowid);
-    
-    res.json({ token, userId: result.lastInsertRowid, role });
+    res.json({ token, userId: newUser.id, role, email: newUser.email, companyName: newUser.company_name });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -360,9 +127,14 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    // Query Supabase users table
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .single();
     
-    if (!user) {
+    if (error || !user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
@@ -376,8 +148,11 @@ app.post('/api/auth/login', async (req, res) => {
     
     const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     
-    // Update last login
-    db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
+    // Update last login in Supabase
+    await supabase
+      .from('users')
+      .update({ last_login: new Date().toISOString() })
+      .eq('id', user.id);
     
     res.json({ 
       token, 
@@ -392,11 +167,15 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Get current user
-app.get('/api/auth/me', authMiddleware, (req, res) => {
+app.get('/api/auth/me', authMiddleware, async (req, res) => {
   try {
-    const user = db.prepare('SELECT id, email, company_name, role, is_active, last_login, created_at FROM users WHERE id = ?').get(req.userId);
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, email, company_name, role, is_active, last_login, created_at')
+      .eq('id', req.userId)
+      .single();
     
-    if (!user) {
+    if (error || !user) {
       return res.status(404).json({ error: 'User not found' });
     }
     
@@ -633,56 +412,34 @@ app.get('/api/dashboard/activity', authMiddleware, (req, res) => {
 // ============================================
 
 // Get all users (Admin only)
-app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
+app.get('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const users = db.prepare(`
-      SELECT 
-        u.id, 
-        u.email, 
-        u.company_name, 
-        u.role, 
-        u.is_active, 
-        u.last_login, 
-        u.created_at,
-        GROUP_CONCAT(r.name) as roles
-      FROM users u
-      LEFT JOIN user_roles ur ON u.id = ur.user_id
-      LEFT JOIN roles r ON ur.role_id = r.id
-      GROUP BY u.id
-      ORDER BY u.created_at DESC
-    `).all();
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email, company_name, role, is_active, last_login, created_at')
+      .order('created_at', { ascending: false });
     
-    res.json(users.map(user => ({
-      ...user,
-      roles: user.roles ? user.roles.split(',') : []
-    })));
+    if (error) throw error;
+    
+    res.json(users);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // Get single user details (Admin only)
-app.get('/api/admin/users/:id', authMiddleware, adminMiddleware, (req, res) => {
+app.get('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const user = db.prepare(`
-      SELECT id, email, company_name, role, is_active, last_login, created_at 
-      FROM users 
-      WHERE id = ?
-    `).get(req.params.id);
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email, company_name, role, is_active, last_login, created_at')
+      .eq('id', req.params.id)
+      .single();
     
-    if (!user) {
+    if (error || !user) {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    // Get user's roles
-    const userRoles = db.prepare(`
-      SELECT r.id, r.name, r.description
-      FROM roles r
-      JOIN user_roles ur ON r.id = ur.role_id
-      WHERE ur.user_id = ?
-    `).all(req.params.id);
-    
-    user.assignedRoles = userRoles;
     res.json(user);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -692,30 +449,35 @@ app.get('/api/admin/users/:id', authMiddleware, adminMiddleware, (req, res) => {
 // Create new user (Admin only)
 app.post('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const { email, password, companyName, role = 'User', isActive = true, roleIds = [] } = req.body;
+    const { firstName, lastName, email, password, companyName, role = 'User', isActive = true } = req.body;
     
-    if (!email || !password || !companyName) {
-      return res.status(400).json({ error: 'Email, password, and company name are required' });
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
     }
     
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    const stmt = db.prepare('INSERT INTO users (email, password, company_name, role, is_active) VALUES (?, ?, ?, ?, ?)');
-    const result = stmt.run(email, hashedPassword, companyName, role, isActive ? 1 : 0);
+    const { data: newUser, error } = await supabase
+      .from('users')
+      .insert([{
+        first_name: firstName || null,
+        last_name: lastName || null,
+        email,
+        password: hashedPassword,
+        company_name: companyName || null,
+        role,
+        is_active: isActive
+      }])
+      .select()
+      .single();
     
-    const userId = result.lastInsertRowid;
-    
-    // Assign roles if provided
-    if (roleIds.length > 0) {
-      const roleStmt = db.prepare('INSERT INTO user_roles (user_id, role_id, assigned_by) VALUES (?, ?, ?)');
-      roleIds.forEach(roleId => {
-        roleStmt.run(userId, roleId, req.userId);
-      });
-    }
+    if (error) throw error;
     
     res.json({ 
-      id: userId, 
+      id: newUser.id, 
       email, 
+      firstName,
+      lastName,
       companyName, 
       role, 
       isActive,
@@ -729,43 +491,33 @@ app.post('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) =
 // Update user (Admin only)
 app.put('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const { email, companyName, role, isActive, password } = req.body;
+    const { firstName, lastName, email, companyName, role, isActive, password } = req.body;
     const userId = req.params.id;
     
-    // Build dynamic update query
-    const updates = [];
-    const values = [];
+    // Build update object
+    const updates = {};
     
-    if (email !== undefined) {
-      updates.push('email = ?');
-      values.push(email);
-    }
-    if (companyName !== undefined) {
-      updates.push('company_name = ?');
-      values.push(companyName);
-    }
-    if (role !== undefined) {
-      updates.push('role = ?');
-      values.push(role);
-    }
-    if (isActive !== undefined) {
-      updates.push('is_active = ?');
-      values.push(isActive ? 1 : 0);
-    }
+    if (firstName !== undefined) updates.first_name = firstName;
+    if (lastName !== undefined) updates.last_name = lastName;
+    if (email !== undefined) updates.email = email;
+    if (companyName !== undefined) updates.company_name = companyName;
+    if (role !== undefined) updates.role = role;
+    if (isActive !== undefined) updates.is_active = isActive;
     if (password) {
-      updates.push('password = ?');
       const hashedPassword = await bcrypt.hash(password, 10);
-      values.push(hashedPassword);
+      updates.password = hashedPassword;
     }
     
-    if (updates.length === 0) {
+    if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
     }
     
-    values.push(userId);
-    const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+    const { error } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', userId);
     
-    db.prepare(query).run(...values);
+    if (error) throw error;
     
     res.json({ message: 'User updated successfully' });
   } catch (error) {
@@ -774,7 +526,7 @@ app.put('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res
 });
 
 // Delete user (Admin only)
-app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, (req, res) => {
+app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const userId = req.params.id;
     
@@ -783,7 +535,13 @@ app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, (req, res) =
       return res.status(400).json({ error: 'Cannot delete your own account' });
     }
     
-    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    const { error } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', userId);
+    
+    if (error) throw error;
+    
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -1024,4 +782,5 @@ app.get('/api/auth/permissions', authMiddleware, (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Connected to Supabase at ${supabaseUrl}`);
 });

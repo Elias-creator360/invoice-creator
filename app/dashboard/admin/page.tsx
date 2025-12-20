@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRequireAdmin } from '@/lib/auth'
+import { supabase } from '@/lib/supabase'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,7 +28,7 @@ interface User {
   email: string
   company_name: string
   role: string
-  is_active: number
+  is_active: boolean
   last_login: string | null
   created_at: string
   roles?: string[]
@@ -103,14 +104,17 @@ export default function AdminPage() {
     setTimeout(() => setMessage(null), 5000)
   }
 
-  const getToken = () => localStorage.getItem('token')
+  const getToken = () => {
+    return localStorage.getItem('auth_token') || ''
+  }
 
   // ==================== USER FUNCTIONS ====================
   
   const fetchUsers = async () => {
     try {
+      const token = getToken()
       const response = await fetch('http://localhost:3001/api/admin/users', {
-        headers: { 'Authorization': `Bearer ${getToken()}` }
+        headers: { 'Authorization': `Bearer ${token}` }
       })
       if (response.ok) {
         const data = await response.json()
@@ -123,11 +127,12 @@ export default function AdminPage() {
 
   const handleCreateUser = async () => {
     try {
+      const token = getToken()
       const response = await fetch('http://localhost:3001/api/admin/users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(userForm)
       })
@@ -150,11 +155,12 @@ export default function AdminPage() {
     if (!editingUser) return
 
     try {
+      const token = getToken()
       const response = await fetch(`http://localhost:3001/api/admin/users/${editingUser.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           firstName: userForm.firstName,
@@ -186,9 +192,10 @@ export default function AdminPage() {
     if (!confirm('Are you sure you want to delete this user?')) return
 
     try {
+      const token = getToken()
       const response = await fetch(`http://localhost:3001/api/admin/users/${userId}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${getToken()}` }
+        headers: { 'Authorization': `Bearer ${token}` }
       })
 
       if (response.ok) {
@@ -212,7 +219,7 @@ export default function AdminPage() {
       password: '',
       companyName: user.company_name,
       role: user.role,
-      isActive: user.is_active === 1
+      isActive: user.is_active
     })
     setShowUserModal(true)
   }
@@ -226,8 +233,9 @@ export default function AdminPage() {
 
   const fetchUserRoles = async (userId: number) => {
     try {
+      const token = getToken()
       const response = await fetch(`http://localhost:3001/api/admin/users/${userId}`, {
-        headers: { 'Authorization': `Bearer ${getToken()}` }
+        headers: { 'Authorization': `Bearer ${token}` }
       })
       if (response.ok) {
         const data = await response.json()
@@ -242,11 +250,12 @@ export default function AdminPage() {
     if (!assigningUser) return
 
     try {
+      const token = getToken()
       const response = await fetch(`http://localhost:3001/api/admin/users/${assigningUser.id}/roles`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ roleIds: selectedRoles })
       })
@@ -270,8 +279,9 @@ export default function AdminPage() {
   
   const fetchRoles = async () => {
     try {
+      const token = getToken()
       const response = await fetch('http://localhost:3001/api/admin/roles', {
-        headers: { 'Authorization': `Bearer ${getToken()}` }
+        headers: { 'Authorization': `Bearer ${token}` }
       })
       if (response.ok) {
         const data = await response.json()
@@ -284,11 +294,12 @@ export default function AdminPage() {
 
   const handleCreateRole = async () => {
     try {
+      const token = getToken()
       const response = await fetch('http://localhost:3001/api/admin/roles', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(roleForm)
       })
@@ -311,11 +322,12 @@ export default function AdminPage() {
     if (!editingRole) return
 
     try {
+      const token = getToken()
       const response = await fetch(`http://localhost:3001/api/admin/roles/${editingRole.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(roleForm)
       })
@@ -339,9 +351,10 @@ export default function AdminPage() {
     if (!confirm('Are you sure you want to delete this role?')) return
 
     try {
+      const token = getToken()
       const response = await fetch(`http://localhost:3001/api/admin/roles/${roleId}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${getToken()}` }
+        headers: { 'Authorization': `Bearer ${token}` }
       })
 
       if (response.ok) {
@@ -369,8 +382,9 @@ export default function AdminPage() {
   
   const fetchPermissions = async () => {
     try {
+      const token = getToken()
       const response = await fetch('http://localhost:3001/api/admin/permissions', {
-        headers: { 'Authorization': `Bearer ${getToken()}` }
+        headers: { 'Authorization': `Bearer ${token}` }
       })
       if (response.ok) {
         const data = await response.json()
@@ -383,8 +397,9 @@ export default function AdminPage() {
 
   const fetchRolePermissions = async (roleId: number) => {
     try {
+      const token = getToken()
       const response = await fetch(`http://localhost:3001/api/admin/roles/${roleId}`, {
-        headers: { 'Authorization': `Bearer ${getToken()}` }
+        headers: { 'Authorization': `Bearer ${token}` }
       })
       if (response.ok) {
         const data = await response.json()
@@ -417,11 +432,12 @@ export default function AdminPage() {
         access_level: p.access_level || 'none'
       }))
 
+      const token = getToken()
       const response = await fetch(`http://localhost:3001/api/admin/roles/${selectedRole}/permissions`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ permissions: permissionsData })
       })
@@ -555,11 +571,11 @@ export default function AdminPage() {
                       </td>
                       <td className="py-3 px-4">
                         <span className={`px-2 py-1 rounded-full text-xs ${
-                          user.is_active === 1
+                          user.is_active
                             ? 'bg-green-100 text-green-800'
                             : 'bg-red-100 text-red-800'
                         }`}>
-                          {user.is_active === 1 ? 'Active' : 'Inactive'}
+                          {user.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-sm text-gray-600">
