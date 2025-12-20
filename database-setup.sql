@@ -4,7 +4,23 @@
 -- 1. Enable UUID Extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 2. Create Customers Table
+-- 2. Create Users Table (for authentication and role management)
+CREATE TABLE users (
+  id BIGSERIAL PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL,
+  company_name TEXT NOT NULL,
+  role TEXT DEFAULT 'User' CHECK (role IN ('Admin', 'User')),
+  is_active BOOLEAN DEFAULT true,
+  last_login TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_role ON users(role);
+
+-- 3. Create Customers Table
 CREATE TABLE customers (
   id BIGSERIAL PRIMARY KEY,
   name TEXT NOT NULL,
@@ -110,6 +126,7 @@ CREATE INDEX idx_transactions_date ON transactions(date DESC);
 CREATE INDEX idx_transactions_type ON transactions(type);
 
 -- 8. Enable Row Level Security
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
@@ -118,6 +135,7 @@ ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 
 -- 9. Create RLS Policies (Public access for development)
+CREATE POLICY "Allow all operations on users" ON users FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all operations on customers" ON customers FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all operations on vendors" ON vendors FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all operations on products" ON products FOR ALL USING (true) WITH CHECK (true);
@@ -135,6 +153,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- 11. Apply Triggers to All Tables
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 CREATE TRIGGER update_customers_updated_at BEFORE UPDATE ON customers
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

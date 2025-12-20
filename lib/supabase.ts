@@ -8,7 +8,15 @@ if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_A
   console.warn('⚠️  The application will not function properly without valid Supabase credentials.')
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+    storageKey: 'invoice-creator-auth',
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined
+  }
+})
 
 // Database types
 export interface Customer {
