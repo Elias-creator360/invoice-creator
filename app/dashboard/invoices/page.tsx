@@ -11,6 +11,8 @@ import { Plus, Search, Eye, Trash2, Pencil } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { invoicesApi } from '@/lib/api'
 import type { Invoice } from '@/lib/supabase'
+import { PermissionGuard, ConditionalRender } from '@/components/PermissionGuard'
+import { usePermissions } from '@/lib/permissions'
 
 export default function InvoicesPage() {
   const router = useRouter()
@@ -18,6 +20,8 @@ export default function InvoicesPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { checkPagePermission } = usePermissions()
+  const permission = checkPagePermission('/dashboard/invoices')
 
   useEffect(() => {
     loadInvoices()
@@ -74,16 +78,22 @@ export default function InvoicesPage() {
   }
 
   return (
-    <div className="p-8">
+    <PermissionGuard pagePath="/dashboard/invoices">
+      <div className="p-8">
         <div className="mb-8 flex justify-between items-center">
           <div>
             <h2 className="text-3xl font-bold text-gray-900">Invoices</h2>
             <p className="text-gray-600 mt-1">Create and manage your invoices</p>
+            {!permission.canEdit && (
+              <p className="text-amber-600 text-sm mt-1">⚠️ You have view-only access</p>
+            )}
           </div>
-          <Button onClick={() => router.push('/dashboard/invoices/new')}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create Invoice
-          </Button>
+          <ConditionalRender pagePath="/dashboard/invoices" requiredLevel="edit">
+            <Button onClick={() => router.push('/dashboard/invoices/new')}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Invoice
+            </Button>
+          </ConditionalRender>
         </div>
 
         {error && (
@@ -179,26 +189,28 @@ export default function InvoicesPage() {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => router.push(`/dashboard/invoices/${invoice.id}/edit`)}
-                          title="Edit invoice"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => {
-                            if (confirm('Are you sure you want to delete this invoice?')) {
-                              handleDelete(invoice.id)
-                            }
-                          }}
-                          title="Delete invoice"
-                        >
-                          <Trash2 className="h-4 w-4 text-red-600" />
-                        </Button>
+                        <ConditionalRender pagePath="/dashboard/invoices" requiredLevel="edit">
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => router.push(`/dashboard/invoices/${invoice.id}/edit`)}
+                            title="Edit invoice"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => {
+                              if (confirm('Are you sure you want to delete this invoice?')) {
+                                handleDelete(invoice.id)
+                              }
+                            }}
+                            title="Delete invoice"
+                          >
+                            <Trash2 className="h-4 w-4 text-red-600" />
+                          </Button>
+                        </ConditionalRender>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -207,6 +219,7 @@ export default function InvoicesPage() {
             </Table>
           </CardContent>
         </Card>
-    </div>
+      </div>
+    </PermissionGuard>
   )
 }

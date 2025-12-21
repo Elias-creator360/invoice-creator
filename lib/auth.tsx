@@ -7,8 +7,10 @@ import { supabase } from './supabase'
 interface User {
   id: string
   email: string
+  firstName?: string
+  lastName?: string
   companyName: string
-  role: 'Admin' | 'User'
+  role: string
 }
 
 interface AuthContextType {
@@ -58,8 +60,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser({
         id: userData.id.toString(),
         email: userData.email,
+        firstName: userData.first_name,
+        lastName: userData.last_name,
         companyName: userData.company_name,
-        role: userData.role as 'Admin' | 'User'
+        role: userData.role
       })
     } catch (error) {
       console.error('Error loading user data:', error)

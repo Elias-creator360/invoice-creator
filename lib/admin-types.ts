@@ -6,7 +6,7 @@ export interface AdminUser {
   last_name?: string
   email: string
   company_name: string
-  role: 'Admin' | 'User'
+  role: string
   is_active: number
   last_login: string | null
   created_at: string
@@ -53,7 +53,7 @@ export interface CreateUserRequest {
   email: string
   password: string
   companyName: string
-  role?: 'Admin' | 'User'
+  role?: string
   isActive?: boolean
   roleIds?: number[]
 }
@@ -63,7 +63,7 @@ export interface UpdateUserRequest {
   lastName?: string
   email?: string
   companyName?: string
-  role?: 'Admin' | 'User'
+  role?: string
   isActive?: boolean
   password?: string
 }
