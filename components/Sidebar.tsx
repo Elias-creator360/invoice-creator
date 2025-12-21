@@ -3,6 +3,7 @@
 import { useRouter, usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
+import { usePermissions } from '@/lib/permissions'
 import { 
   LayoutDashboard, 
   Users, 
@@ -21,22 +22,30 @@ export default function Sidebar() {
   const router = useRouter()
   const pathname = usePathname()
   const { user, logout, isAdmin } = useAuth()
+  const { checkPagePermission, loading: permissionsLoading } = usePermissions()
 
-  const navItems = [
-    { name: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
-    { name: 'Customers', icon: Users, href: '/dashboard/customers' },
-    { name: 'Products', icon: Package, href: '/dashboard/products' },
-    { name: 'Invoices', icon: FileText, href: '/dashboard/invoices' },
-    { name: 'Expenses', icon: Receipt, href: '/dashboard/expenses' },
-    { name: 'Vendors', icon: Building2, href: '/dashboard/vendors' },
-    { name: 'Transactions', icon: CreditCard, href: '/dashboard/transactions' },
-    { name: 'Reports', icon: TrendingUp, href: '/dashboard/reports' },
+  const allNavItems = [
+    { name: 'Dashboard', icon: LayoutDashboard, href: '/dashboard', path: '/dashboard' },
+    { name: 'Customers', icon: Users, href: '/dashboard/customers', path: '/dashboard/customers' },
+    { name: 'Products', icon: Package, href: '/dashboard/products', path: '/dashboard/products' },
+    { name: 'Invoices', icon: FileText, href: '/dashboard/invoices', path: '/dashboard/invoices' },
+    { name: 'Expenses', icon: Receipt, href: '/dashboard/expenses', path: '/dashboard/expenses' },
+    { name: 'Vendors', icon: Building2, href: '/dashboard/vendors', path: '/dashboard/vendors' },
+    { name: 'Transactions', icon: CreditCard, href: '/dashboard/transactions', path: '/dashboard/transactions' },
+    { name: 'Reports', icon: TrendingUp, href: '/dashboard/reports', path: '/dashboard/reports' },
   ]
 
   // Add Admin Panel link only for Admin users
   if (isAdmin) {
-    navItems.push({ name: 'Admin Panel', icon: Settings, href: '/dashboard/admin' })
+    allNavItems.push({ name: 'Admin Panel', icon: Settings, href: '/dashboard/admin', path: '/dashboard/admin' })
   }
+
+  // Filter navigation items based on user permissions
+  // Only show items where user has at least 'view' access (not 'none')
+  const navItems = allNavItems.filter(item => {
+    const permission = checkPagePermission(item.path)
+    return permission.hasAccess // This will be true for 'view' and 'edit', false for 'none'
+  })
 
   const isActive = (href: string) => {
     if (href === '/dashboard') {
@@ -77,7 +86,11 @@ export default function Sidebar() {
         <div className="mb-4 p-3 bg-gray-50 rounded-lg">
           <div className="flex items-center gap-2 mb-1">
             <User className="h-4 w-4 text-gray-600" />
-            <span className="text-sm font-medium text-gray-900">{user?.email}</span>
+            <span className="text-sm font-medium text-gray-900">
+              {user?.firstName && user?.lastName 
+                ? `${user.firstName} ${user.lastName}` 
+                : user?.email}
+            </span>
           </div>
           <div className="text-xs text-gray-600">{user?.companyName}</div>
           <div className="mt-1">

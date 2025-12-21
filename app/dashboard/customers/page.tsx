@@ -10,6 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Plus, Search, Edit, Trash2, Mail, Phone } from 'lucide-react'
 import { customersApi } from '@/lib/api'
 import type { Customer } from '@/lib/supabase'
+import { PermissionGuard, ConditionalRender } from '@/components/PermissionGuard'
+import { usePermissions } from '@/lib/permissions'
 
 export default function CustomersPage() {
   const router = useRouter()
@@ -20,6 +22,9 @@ export default function CustomersPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { checkPagePermission } = usePermissions()
+  const permission = checkPagePermission('/dashboard/customers')
+  
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -121,16 +126,22 @@ export default function CustomersPage() {
   }
 
   return (
-    <div className="p-8">
+    <PermissionGuard pagePath="/dashboard/customers">
+      <div className="p-8">
         <div className="mb-8 flex justify-between items-center">
           <div>
             <h2 className="text-3xl font-bold text-gray-900">Customers</h2>
             <p className="text-gray-600 mt-1">Manage your customer relationships</p>
+            {!permission.canEdit && (
+              <p className="text-amber-600 text-sm mt-1">⚠️ You have view-only access</p>
+            )}
           </div>
-          <Button onClick={() => setShowForm(!showForm)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Customer
-          </Button>
+          <ConditionalRender pagePath="/dashboard/customers" requiredLevel="edit">
+            <Button onClick={() => setShowForm(!showForm)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Customer
+            </Button>
+          </ConditionalRender>
         </div>
 
         {error && (
@@ -139,7 +150,7 @@ export default function CustomersPage() {
           </div>
         )}
 
-        {showForm && (
+        {showForm && permission.canEdit && (
           <Card className="mb-6">
             <CardHeader>
               <CardTitle>{editingId !== null ? 'Edit Customer' : 'New Customer'}</CardTitle>
@@ -295,12 +306,14 @@ export default function CustomersPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => handleEdit(customer)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDelete(customer.id)}>
-                          <Trash2 className="h-4 w-4 text-red-600" />
-                        </Button>
+                        <ConditionalRender pagePath="/dashboard/customers" requiredLevel="edit">
+                          <Button variant="ghost" size="sm" onClick={() => handleEdit(customer)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => handleDelete(customer.id)}>
+                            <Trash2 className="h-4 w-4 text-red-600" />
+                          </Button>
+                        </ConditionalRender>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -309,6 +322,7 @@ export default function CustomersPage() {
             </Table>
           </CardContent>
         </Card>
-    </div>
+      </div>
+    </PermissionGuard>
   )
 }

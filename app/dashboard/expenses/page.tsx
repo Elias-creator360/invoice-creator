@@ -11,6 +11,8 @@ import { Plus, Search, Trash2 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { expensesApi } from '@/lib/api'
 import type { Expense } from '@/lib/supabase'
+import { PermissionGuard, ConditionalRender } from '@/components/PermissionGuard'
+import { usePermissions } from '@/lib/permissions'
 
 export default function ExpensesPage() {
   const router = useRouter()
@@ -20,6 +22,8 @@ export default function ExpensesPage() {
   const [showForm, setShowForm] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { checkPagePermission } = usePermissions()
+  const permission = checkPagePermission('/dashboard/expenses')
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     vendor_name: '',
@@ -105,16 +109,22 @@ export default function ExpensesPage() {
   }
 
   return (
-    <div className="p-8">
+    <PermissionGuard pagePath="/dashboard/expenses">
+      <div className="p-8">
         <div className="mb-8 flex justify-between items-center">
           <div>
             <h2 className="text-3xl font-bold text-gray-900">Expenses</h2>
             <p className="text-gray-600 mt-1">Track and manage your business expenses</p>
+            {!permission.canEdit && (
+              <p className="text-amber-600 text-sm mt-1">⚠️ You have view-only access</p>
+            )}
           </div>
-          <Button onClick={() => setShowForm(!showForm)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Expense
-          </Button>
+          <ConditionalRender pagePath="/dashboard/expenses" requiredLevel="edit">
+            <Button onClick={() => setShowForm(!showForm)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Expense
+            </Button>
+          </ConditionalRender>
         </div>
 
         {error && (
@@ -134,7 +144,7 @@ export default function ExpensesPage() {
           </CardContent>
         </Card>
 
-        {showForm && (
+        {showForm && permission.canEdit && (
           <Card className="mb-6">
             <CardHeader>
               <CardTitle>New Expense</CardTitle>
@@ -259,9 +269,11 @@ export default function ExpensesPage() {
                       {formatCurrency(expense.amount)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(expense.id)}>
-                        <Trash2 className="h-4 w-4 text-red-600" />
-                      </Button>
+                      <ConditionalRender pagePath="/dashboard/expenses" requiredLevel="edit">
+                        <Button variant="ghost" size="sm" onClick={() => handleDelete(expense.id)}>
+                          <Trash2 className="h-4 w-4 text-red-600" />
+                        </Button>
+                      </ConditionalRender>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -269,6 +281,7 @@ export default function ExpensesPage() {
             </Table>
           </CardContent>
         </Card>
-    </div>
+      </div>
+    </PermissionGuard>
   )
 }

@@ -80,8 +80,11 @@ export default function AdminPage() {
 
   // Permissions state
   const [permissions, setPermissions] = useState<Permission[]>([])
-  const [selectedRole, setSelectedRole] = useState<number | null>(null)
+  const [selectedRole, setSelectedRole] = useState<string | null>(null)
   const [rolePermissions, setRolePermissions] = useState<Permission[]>([])
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [showUnsavedWarning, setShowUnsavedWarning] = useState(false)
+  const [pendingTab, setPendingTab] = useState<'users' | 'roles' | 'permissions' | null>(null)
 
   // Assign roles state
   const [showAssignRolesModal, setShowAssignRolesModal] = useState(false)
@@ -142,6 +145,7 @@ export default function AdminPage() {
         setShowUserModal(false)
         setUserForm({ firstName: '', lastName: '', email: '', password: '', companyName: '', role: 'User', isActive: true })
         fetchUsers()
+        fetchRoles() // Refresh roles to update user counts
       } else {
         const error = await response.json()
         showMessage('error', error.error || 'Failed to create user')
@@ -179,6 +183,7 @@ export default function AdminPage() {
         setEditingUser(null)
         setUserForm({ firstName: '', lastName: '', email: '', password: '', companyName: '', role: 'User', isActive: true })
         fetchUsers()
+        fetchRoles() // Refresh roles to update user counts
       } else {
         const error = await response.json()
         showMessage('error', error.error || 'Failed to update user')
@@ -201,6 +206,7 @@ export default function AdminPage() {
       if (response.ok) {
         showMessage('success', 'User deleted successfully')
         fetchUsers()
+        fetchRoles() // Refresh roles to update user counts
       } else {
         const error = await response.json()
         showMessage('error', error.error || 'Failed to delete user')
@@ -395,10 +401,10 @@ export default function AdminPage() {
     }
   }
 
-  const fetchRolePermissions = async (roleId: number) => {
+  const fetchRolePermissions = async (roleName: string) => {
     try {
       const token = getToken()
-      const response = await fetch(`http://localhost:3001/api/admin/roles/${roleId}`, {
+      const response = await fetch(`http://localhost:3001/api/admin/roles/${encodeURIComponent(roleName)}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (response.ok) {
@@ -410,9 +416,15 @@ export default function AdminPage() {
     }
   }
 
-  const handleRoleSelect = (roleId: number) => {
-    setSelectedRole(roleId)
-    fetchRolePermissions(roleId)
+  const handleRoleSelect = (roleName: string) => {
+    if (hasUnsavedChanges) {
+      setPendingTab(null) // Just switching roles within permissions
+      setShowUnsavedWarning(true)
+      return
+    }
+    setSelectedRole(roleName)
+    fetchRolePermissions(roleName)
+    setHasUnsavedChanges(false)
   }
 
   const handlePermissionChange = (permissionId: number, accessLevel: string) => {
@@ -421,6 +433,7 @@ export default function AdminPage() {
         p.id === permissionId ? { ...p, access_level: accessLevel } : p
       )
     )
+    setHasUnsavedChanges(true)
   }
 
   const handleSavePermissions = async () => {
@@ -428,12 +441,16 @@ export default function AdminPage() {
 
     try {
       const permissionsData = rolePermissions.map(p => ({
-        permission_id: p.id,
+        feature_name: p.page_name,  // Use actual feature name, not ID
+        feature_path: p.page_path,
         access_level: p.access_level || 'none'
       }))
 
+      console.log('Saving permissions for role:', selectedRole)
+      console.log('Permissions data:', permissionsData)
+
       const token = getToken()
-      const response = await fetch(`http://localhost:3001/api/admin/roles/${selectedRole}/permissions`, {
+      const response = await fetch(`http://localhost:3001/api/admin/roles/${encodeURIComponent(selectedRole)}/permissions`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -445,6 +462,7 @@ export default function AdminPage() {
       if (response.ok) {
         showMessage('success', 'Permissions updated successfully')
         fetchRoles()
+        setHasUnsavedChanges(false)
       } else {
         const error = await response.json()
         showMessage('error', error.error || 'Failed to update permissions')
@@ -486,7 +504,14 @@ export default function AdminPage() {
       {/* Tabs */}
       <div className="flex gap-4 mb-6 border-b border-gray-200">
         <button
-          onClick={() => setActiveTab('users')}
+          onClick={() => {
+            if (activeTab === 'permissions' && hasUnsavedChanges) {
+              setPendingTab('users')
+              setShowUnsavedWarning(true)
+            } else {
+              setActiveTab('users')
+            }
+          }}
           className={`pb-3 px-4 font-medium flex items-center gap-2 ${
             activeTab === 'users'
               ? 'border-b-2 border-blue-600 text-blue-600'
@@ -497,7 +522,14 @@ export default function AdminPage() {
           Users
         </button>
         <button
-          onClick={() => setActiveTab('roles')}
+          onClick={() => {
+            if (activeTab === 'permissions' && hasUnsavedChanges) {
+              setPendingTab('roles')
+              setShowUnsavedWarning(true)
+            } else {
+              setActiveTab('roles')
+            }
+          }}
           className={`pb-3 px-4 font-medium flex items-center gap-2 ${
             activeTab === 'roles'
               ? 'border-b-2 border-blue-600 text-blue-600'
@@ -583,14 +615,6 @@ export default function AdminPage() {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex gap-2 justify-end">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openAssignRoles(user)}
-                          >
-                            <Shield className="h-4 w-4 mr-1" />
-                            Roles
-                          </Button>
                           <Button
                             variant="outline"
                             size="sm"
@@ -690,17 +714,17 @@ export default function AdminPage() {
         <div>
           <h2 className="text-xl font-semibold mb-6">Permission Management</h2>
           
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
             {/* Role Selection */}
-            <Card className="p-6">
+            <Card className="p-6 lg:col-span-2">
               <h3 className="font-semibold mb-4">Select Role</h3>
               <div className="space-y-2">
                 {roles.map((role) => (
                   <button
                     key={role.id}
-                    onClick={() => handleRoleSelect(role.id)}
+                    onClick={() => handleRoleSelect(role.name)}
                     className={`w-full text-left p-3 rounded-lg border ${
-                      selectedRole === role.id
+                      selectedRole === role.name
                         ? 'border-blue-600 bg-blue-50 text-blue-900'
                         : 'border-gray-200 hover:bg-gray-50'
                     }`}
@@ -713,7 +737,7 @@ export default function AdminPage() {
             </Card>
 
             {/* Permissions Configuration */}
-            <Card className="p-6 lg:col-span-2">
+            <Card className="p-6 lg:col-span-3">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-semibold">Page Permissions</h3>
                 {selectedRole && (
@@ -726,52 +750,70 @@ export default function AdminPage() {
 
               {selectedRole ? (
                 <div className="space-y-3">
-                  {rolePermissions.map((perm) => (
-                    <div key={perm.id} className="p-4 border border-gray-200 rounded-lg">
-                      <div className="flex justify-between items-center mb-2">
-                        <div>
-                          <div className="font-medium">{perm.page_name}</div>
-                          <div className="text-sm text-gray-600">{perm.page_path}</div>
+                  {rolePermissions.length > 0 ? (
+                    rolePermissions.map((perm) => (
+                      <div key={perm.id} className="p-4 border border-gray-200 rounded-lg hover:border-blue-300 transition-colors">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <div className="font-medium text-gray-900">{perm.page_name}</div>
+                            <div className="text-sm text-gray-500">{perm.page_path}</div>
+                          </div>
+                          <div className={`px-2 py-1 rounded text-xs font-medium ${
+                            perm.access_level === 'edit' 
+                              ? 'bg-green-100 text-green-700'
+                              : perm.access_level === 'view'
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-red-100 text-red-700'
+                          }`}>
+                            {perm.access_level === 'edit' ? 'Full Access' : perm.access_level === 'view' ? 'View Only' : 'No Access'}
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handlePermissionChange(perm.id, 'none')}
+                            className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-all ${
+                              perm.access_level === 'none'
+                                ? 'bg-red-500 text-white shadow-md'
+                                : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
+                            }`}
+                          >
+                            🚫 None
+                          </button>
+                          <button
+                            onClick={() => handlePermissionChange(perm.id, 'view')}
+                            className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-all ${
+                              perm.access_level === 'view'
+                                ? 'bg-yellow-500 text-white shadow-md'
+                                : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
+                            }`}
+                          >
+                            👁️ View
+                          </button>
+                          <button
+                            onClick={() => handlePermissionChange(perm.id, 'edit')}
+                            className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-all ${
+                              perm.access_level === 'edit'
+                                ? 'bg-green-500 text-white shadow-md'
+                                : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
+                            }`}
+                          >
+                            ✏️ Edit
+                          </button>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handlePermissionChange(perm.id, 'none')}
-                          className={`px-3 py-1 rounded text-sm ${
-                            perm.access_level === 'none'
-                              ? 'bg-red-100 text-red-800 border-2 border-red-600'
-                              : 'bg-gray-100 text-gray-700 border border-gray-300'
-                          }`}
-                        >
-                          None
-                        </button>
-                        <button
-                          onClick={() => handlePermissionChange(perm.id, 'view')}
-                          className={`px-3 py-1 rounded text-sm ${
-                            perm.access_level === 'view'
-                              ? 'bg-yellow-100 text-yellow-800 border-2 border-yellow-600'
-                              : 'bg-gray-100 text-gray-700 border border-gray-300'
-                          }`}
-                        >
-                          View Only
-                        </button>
-                        <button
-                          onClick={() => handlePermissionChange(perm.id, 'edit')}
-                          className={`px-3 py-1 rounded text-sm ${
-                            perm.access_level === 'edit'
-                              ? 'bg-green-100 text-green-800 border-2 border-green-600'
-                              : 'bg-gray-100 text-gray-700 border border-gray-300'
-                          }`}
-                        >
-                          Full Access
-                        </button>
-                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center text-gray-500 py-12">
+                      <AlertCircle className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                      <p>No permissions found for this role</p>
+                      <p className="text-sm mt-1">Make sure the role_permissions table is set up in Supabase</p>
                     </div>
-                  ))}
+                  )}
                 </div>
               ) : (
                 <div className="text-center text-gray-500 py-12">
-                  Select a role to manage its permissions
+                  <Key className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                  <p>Select a role to manage its permissions</p>
                 </div>
               )}
             </Card>
@@ -858,8 +900,11 @@ export default function AdminPage() {
                   onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}
                   className="w-full p-2 border border-gray-300 rounded-md"
                 >
-                  <option value="Admin">Admin</option>
-                  <option value="User">User</option>
+                  {roles.map((role) => (
+                    <option key={role.id} value={role.name}>
+                      {role.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1009,6 +1054,49 @@ export default function AdminPage() {
                 }}
               >
                 Cancel
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Unsaved Changes Warning Modal */}
+      {showUnsavedWarning && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="p-6 w-full max-w-md mx-4">
+            <div className="flex items-start gap-3 mb-4">
+              <AlertCircle className="h-6 w-6 text-orange-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-xl font-semibold">Unsaved Changes</h3>
+                <p className="text-gray-600 mt-2">
+                  You have unsaved permission changes. If you leave now, your changes will be discarded.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setHasUnsavedChanges(false)
+                  if (pendingTab) {
+                    setActiveTab(pendingTab)
+                    setPendingTab(null)
+                  }
+                  setShowUnsavedWarning(false)
+                }}
+                className="flex-1 bg-red-50 border-red-300 text-red-700 hover:bg-red-100"
+              >
+                Discard Changes
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowUnsavedWarning(false)
+                  setPendingTab(null)
+                }}
+                className="flex-1"
+              >
+                Stay on Page
               </Button>
             </div>
           </Card>

@@ -80,11 +80,6 @@ app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password, companyName, role = 'User' } = req.body;
     
-    // Validate role
-    if (!['Admin', 'User'].includes(role)) {
-      return res.status(400).json({ error: 'Invalid role. Must be Admin or User' });
-    }
-    
     // Check if user exists
     const { data: existingUser } = await supabase
       .from('users')
@@ -171,7 +166,7 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
   try {
     const { data: user, error } = await supabase
       .from('users')
-      .select('id, email, company_name, role, is_active, last_login, created_at')
+      .select('id, email, first_name, last_name, company_name, role, is_active, last_login, created_at')
       .eq('id', req.userId)
       .single();
     
@@ -549,19 +544,56 @@ app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, 
 });
 
 // Get all roles
-app.get('/api/admin/roles', authMiddleware, adminMiddleware, (req, res) => {
+app.get('/api/admin/roles', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const roles = db.prepare(`
-      SELECT 
-        r.*,
-        COUNT(DISTINCT ur.user_id) as user_count,
-        COUNT(DISTINCT rp.permission_id) as permission_count
-      FROM roles r
-      LEFT JOIN user_roles ur ON r.id = ur.role_id
-      LEFT JOIN role_permissions rp ON r.id = rp.role_id
-      GROUP BY r.id
-      ORDER BY r.is_system DESC, r.created_at DESC
-    `).all();
+    // Get all distinct roles from role_permissions table
+    const { data: permissions, error: permError } = await supabase
+      .from('role_permissions')
+      .select('role');
+    
+    if (permError) throw permError;
+    
+    // Get unique roles
+    const uniqueRoles = [...new Set(permissions?.map(p => p.role) || [])];
+    
+    // Get user counts
+    const { data: users, error: userError } = await supabase
+      .from('users')
+      .select('role');
+    
+    if (userError) throw userError;
+    
+    const roleCounts = {};
+    users.forEach(user => {
+      roleCounts[user.role] = (roleCounts[user.role] || 0) + 1;
+    });
+    
+    // Build roles array
+    const roles = uniqueRoles.map((roleName, index) => {
+      const isSystem = roleName === 'Admin' || roleName === 'User';
+      return {
+        id: index + 1,
+        name: roleName,
+        description: roleName === 'Admin' 
+          ? 'Full system access with all permissions' 
+          : roleName === 'User'
+          ? 'Standard user with basic permissions'
+          : `Custom role: ${roleName}`,
+        is_system: isSystem ? 1 : 0,
+        user_count: roleCounts[roleName] || 0,
+        permission_count: 9, // All roles have access to all 9 features
+        created_at: new Date().toISOString()
+      };
+    });
+    
+    // Sort so Admin and User are first
+    roles.sort((a, b) => {
+      if (a.name === 'Admin') return -1;
+      if (b.name === 'Admin') return 1;
+      if (a.name === 'User') return -1;
+      if (b.name === 'User') return 1;
+      return a.name.localeCompare(b.name);
+    });
     
     res.json(roles);
   } catch (error) {
@@ -570,30 +602,85 @@ app.get('/api/admin/roles', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 // Get single role details
-app.get('/api/admin/roles/:id', authMiddleware, adminMiddleware, (req, res) => {
+app.get('/api/admin/roles/:nameOrId', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const role = db.prepare('SELECT * FROM roles WHERE id = ?').get(req.params.id);
+    const param = req.params.nameOrId;
+    let roleName;
     
-    if (!role) {
+    // Check if param is a number (legacy ID-based request) or a string (role name)
+    if (/^\d+$/.test(param)) {
+      // Legacy: ID-based request
+      const roleId = parseInt(param);
+      const { data: allPermissions, error: allError } = await supabase
+        .from('role_permissions')
+        .select('role');
+      
+      if (allError) throw allError;
+      
+      const uniqueRoles = [...new Set(allPermissions?.map(p => p.role) || [])];
+      uniqueRoles.sort((a, b) => {
+        if (a === 'Admin') return -1;
+        if (b === 'Admin') return 1;
+        if (a === 'User') return -1;
+        if (b === 'User') return 1;
+        return a.localeCompare(b);
+      });
+      
+      roleName = uniqueRoles[roleId - 1];
+    } else {
+      // New: Direct role name
+      roleName = decodeURIComponent(param);
+    }
+    
+    if (!roleName) {
       return res.status(404).json({ error: 'Role not found' });
     }
     
-    // Get role permissions
-    const permissions = db.prepare(`
-      SELECT p.*, rp.access_level
-      FROM permissions p
-      LEFT JOIN role_permissions rp ON p.id = rp.permission_id AND rp.role_id = ?
-    `).all(req.params.id);
+    console.log(`📖 Fetching details for role: "${roleName}"`);
     
-    role.permissions = permissions;
+    // Fetch permissions for this role from Supabase
+    const { data: permissions, error } = await supabase
+      .from('role_permissions')
+      .select('*')
+      .eq('role', roleName)
+      .order('feature');
+    
+    if (error) throw error;
+    
+    console.log(`✅ Found ${permissions.length} permissions for role "${roleName}"`);
+    
+    // Format permissions to match expected structure
+    const formattedPermissions = permissions.map((perm, index) => ({
+      id: index + 1,
+      page_name: perm.feature,
+      page_path: perm.feature_path,
+      description: `Access to ${perm.feature} feature`,
+      access_level: perm.access_level
+    }));
+    
+    const isSystem = roleName === 'Admin' || roleName === 'User';
+    
+    const role = {
+      id: 1, // Not used anymore but kept for compatibility
+      name: roleName,
+      description: roleName === 'Admin' 
+        ? 'Full system access with all permissions' 
+        : roleName === 'User'
+        ? 'Standard user with basic permissions'
+        : `Custom role: ${roleName}`,
+      is_system: isSystem ? 1 : 0,
+      permissions: formattedPermissions
+    };
+    
     res.json(role);
   } catch (error) {
+    console.error('❌ Error fetching role details:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
 // Create new role (Admin only)
-app.post('/api/admin/roles', authMiddleware, adminMiddleware, (req, res) => {
+app.post('/api/admin/roles', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { name, description } = req.body;
     
@@ -601,14 +688,47 @@ app.post('/api/admin/roles', authMiddleware, adminMiddleware, (req, res) => {
       return res.status(400).json({ error: 'Role name is required' });
     }
     
-    const stmt = db.prepare('INSERT INTO roles (name, description, is_system) VALUES (?, ?, 0)');
-    const result = stmt.run(name, description || '');
+    // Check if role already exists
+    const { data: existing } = await supabase
+      .from('role_permissions')
+      .select('role')
+      .eq('role', name)
+      .limit(1);
+    
+    if (existing && existing.length > 0) {
+      return res.status(400).json({ error: 'Role already exists' });
+    }
+    
+    // Create default permissions for the new role (all set to 'none')
+    const features = [
+      { feature: 'Dashboard', path: '/dashboard' },
+      { feature: 'Customers', path: '/dashboard/customers' },
+      { feature: 'Products', path: '/dashboard/products' },
+      { feature: 'Invoices', path: '/dashboard/invoices' },
+      { feature: 'Expenses', path: '/dashboard/expenses' },
+      { feature: 'Vendors', path: '/dashboard/vendors' },
+      { feature: 'Transactions', path: '/dashboard/transactions' },
+      { feature: 'Reports', path: '/dashboard/reports' },
+      { feature: 'Admin Panel', path: '/dashboard/admin' }
+    ];
+    
+    const permissionsToInsert = features.map(f => ({
+      role: name,
+      feature: f.feature,
+      feature_path: f.path,
+      access_level: 'none'
+    }));
+    
+    const { error } = await supabase
+      .from('role_permissions')
+      .insert(permissionsToInsert);
+    
+    if (error) throw error;
     
     res.json({ 
-      id: result.lastInsertRowid, 
-      name, 
-      description,
-      message: 'Role created successfully' 
+      message: 'Role created successfully',
+      name,
+      description
     });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -616,60 +736,58 @@ app.post('/api/admin/roles', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 // Update role (Admin only, cannot update system roles)
-app.put('/api/admin/roles/:id', authMiddleware, adminMiddleware, (req, res) => {
+app.put('/api/admin/roles/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const roleId = req.params.id;
     const { name, description } = req.body;
     
-    // Check if it's a system role
-    const role = db.prepare('SELECT is_system FROM roles WHERE id = ?').get(roleId);
-    if (!role) {
-      return res.status(404).json({ error: 'Role not found' });
-    }
-    if (role.is_system === 1) {
-      return res.status(400).json({ error: 'Cannot modify system roles' });
-    }
-    
-    const updates = [];
-    const values = [];
-    
-    if (name !== undefined) {
-      updates.push('name = ?');
-      values.push(name);
-    }
-    if (description !== undefined) {
-      updates.push('description = ?');
-      values.push(description);
-    }
-    
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'No fields to update' });
-    }
-    
-    values.push(roleId);
-    const query = `UPDATE roles SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
-    
-    db.prepare(query).run(...values);
-    res.json({ message: 'Role updated successfully' });
+    // For now, role descriptions are not stored separately
+    // This endpoint mainly exists for future extensibility
+    res.json({ message: 'Role names cannot be changed after creation. Modify permissions instead.' });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
 // Delete role (Admin only, cannot delete system roles)
-app.delete('/api/admin/roles/:id', authMiddleware, adminMiddleware, (req, res) => {
+app.delete('/api/admin/roles/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const roleId = req.params.id;
+    const roleId = parseInt(req.params.id);
     
-    const role = db.prepare('SELECT is_system FROM roles WHERE id = ?').get(roleId);
-    if (!role) {
+    // Get all roles to map ID to role name
+    const { data: allPermissions, error: rolesError } = await supabase
+      .from('role_permissions')
+      .select('role');
+    
+    if (rolesError) throw rolesError;
+    
+    const uniqueRoles = [...new Set(allPermissions?.map(p => p.role) || [])];
+    uniqueRoles.sort((a, b) => {
+      if (a === 'Admin') return -1;
+      if (b === 'Admin') return 1;
+      if (a === 'User') return -1;
+      if (b === 'User') return 1;
+      return a.localeCompare(b);
+    });
+    
+    const roleName = uniqueRoles[roleId - 1];
+    
+    if (!roleName) {
       return res.status(404).json({ error: 'Role not found' });
     }
-    if (role.is_system === 1) {
+    
+    // Don't allow deleting system roles
+    if (roleName === 'Admin' || roleName === 'User') {
       return res.status(400).json({ error: 'Cannot delete system roles' });
     }
     
-    db.prepare('DELETE FROM roles WHERE id = ?').run(roleId);
+    // Delete all permissions for this role
+    const { error } = await supabase
+      .from('role_permissions')
+      .delete()
+      .eq('role', roleName);
+    
+    if (error) throw error;
+    
     res.json({ message: 'Role deleted successfully' });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -677,38 +795,120 @@ app.delete('/api/admin/roles/:id', authMiddleware, adminMiddleware, (req, res) =
 });
 
 // Get all permissions
-app.get('/api/admin/permissions', authMiddleware, adminMiddleware, (req, res) => {
+app.get('/api/admin/permissions', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const permissions = db.prepare('SELECT * FROM permissions ORDER BY page_name').all();
-    res.json(permissions);
+    // Get all distinct features from role_permissions
+    const { data: permissions, error } = await supabase
+      .from('role_permissions')
+      .select('feature, feature_path')
+      .order('feature');
+    
+    if (error) throw error;
+    
+    // Remove duplicates and format
+    const uniquePermissions = [];
+    const seen = new Set();
+    
+    permissions.forEach(perm => {
+      if (!seen.has(perm.feature)) {
+        seen.add(perm.feature);
+        uniquePermissions.push({
+          id: uniquePermissions.length + 1,
+          page_name: perm.feature,
+          page_path: perm.feature_path,
+          description: `Access to ${perm.feature} feature`
+        });
+      }
+    });
+    
+    res.json(uniquePermissions);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // Update role permissions (Admin only)
-app.put('/api/admin/roles/:id/permissions', authMiddleware, adminMiddleware, (req, res) => {
+app.put('/api/admin/roles/:nameOrId/permissions', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const roleId = req.params.id;
-    const { permissions } = req.body; // Array of { permission_id, access_level }
+    const param = req.params.nameOrId;
+    const { permissions } = req.body; // Array of { feature_name, feature_path, access_level }
+    
+    console.log('📝 Updating permissions for role:', param);
+    console.log('📋 Permissions received:', JSON.stringify(permissions, null, 2));
     
     if (!Array.isArray(permissions)) {
       return res.status(400).json({ error: 'Permissions must be an array' });
     }
     
-    // Delete existing permissions for this role
-    db.prepare('DELETE FROM role_permissions WHERE role_id = ?').run(roleId);
+    let roleName;
     
-    // Insert new permissions
-    const stmt = db.prepare('INSERT INTO role_permissions (role_id, permission_id, access_level) VALUES (?, ?, ?)');
-    permissions.forEach(perm => {
-      if (perm.access_level !== 'none') {
-        stmt.run(roleId, perm.permission_id, perm.access_level);
+    // Check if param is a number (legacy ID-based request) or a string (role name)
+    if (/^\d+$/.test(param)) {
+      // Legacy: ID-based request - convert to role name
+      const roleId = parseInt(param);
+      const { data: allPermissions, error: rolesError } = await supabase
+        .from('role_permissions')
+        .select('role');
+      
+      if (rolesError) throw rolesError;
+      
+      const uniqueRoles = [...new Set(allPermissions?.map(p => p.role) || [])];
+      uniqueRoles.sort((a, b) => {
+        if (a === 'Admin') return -1;
+        if (b === 'Admin') return 1;
+        if (a === 'User') return -1;
+        if (b === 'User') return 1;
+        return a.localeCompare(b);
+      });
+      
+      roleName = uniqueRoles[roleId - 1];
+    } else {
+      // New: Direct role name
+      roleName = decodeURIComponent(param);
+    }
+    
+    console.log('🎯 Target role name: "' + roleName + '"');
+    
+    if (!roleName) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+    
+    // Update each permission using role name + feature name directly
+    let updateCount = 0;
+    for (const perm of permissions) {
+      if (!perm.feature_name || !perm.feature_path || !perm.access_level) {
+        console.log(`⚠️ Skipping invalid permission:`, perm);
+        continue;
       }
-    });
+      
+      console.log(`✏️ Updating: Role="${roleName}", Feature="${perm.feature_name}", Access="${perm.access_level}"`);
+      
+      // Upsert the permission based on role + feature name
+      const { error } = await supabase
+        .from('role_permissions')
+        .upsert({
+          role: roleName,
+          feature: perm.feature_name,
+          feature_path: perm.feature_path,
+          access_level: perm.access_level,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'role,feature'
+        });
+      
+      if (error) {
+        console.error(`❌ Error updating "${perm.feature_name}":`, error);
+        throw error;
+      }
+      
+      updateCount++;
+      console.log(`✅ Successfully updated "${perm.feature_name}" to "${perm.access_level}"`);
+    }
     
-    res.json({ message: 'Role permissions updated successfully' });
+    console.log(`🎉 Total permissions updated: ${updateCount} for role "${roleName}"`);
+    res.json({ message: `Successfully updated ${updateCount} permissions for role ${roleName}` });
   } catch (error) {
+    console.error('❌ Error in permission update:', error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -739,42 +939,99 @@ app.post('/api/admin/users/:id/roles', authMiddleware, adminMiddleware, (req, re
 });
 
 // Get user permissions
-app.get('/api/auth/permissions', authMiddleware, (req, res) => {
+app.get('/api/auth/permissions', authMiddleware, async (req, res) => {
   try {
-    const permissions = db.prepare(`
-      SELECT DISTINCT
-        p.page_name,
-        p.page_path,
-        MAX(
-          CASE rp.access_level
-            WHEN 'edit' THEN 3
-            WHEN 'view' THEN 2
-            WHEN 'none' THEN 1
-            ELSE 0
-          END
-        ) as access_level_num
-      FROM permissions p
-      LEFT JOIN role_permissions rp ON p.id = rp.permission_id
-      LEFT JOIN user_roles ur ON rp.role_id = ur.role_id
-      WHERE ur.user_id = ?
-      GROUP BY p.id, p.page_name, p.page_path
-    `).all(req.userId);
-    
-    // Convert numeric access level back to string
-    const formattedPermissions = permissions.map(perm => ({
-      page_name: perm.page_name,
-      page_path: perm.page_path,
-      access_level: perm.access_level_num === 3 ? 'edit' : perm.access_level_num === 2 ? 'view' : 'none'
-    }));
-    
-    // If user is Admin (legacy role field), give full access
-    const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.userId);
+    // Get user data to check role
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, email, role')
+      .eq('id', req.userId)
+      .single();
+
+    if (userError) throw userError;
+
+    console.log(`🔍 Fetching permissions for user:`, { id: user.id, email: user.email, role: user.role });
+
+    // If user is Admin (legacy role field), give full access to everything
     if (user && user.role === 'Admin') {
-      const allPermissions = db.prepare('SELECT page_name, page_path FROM permissions').all();
-      return res.json(allPermissions.map(p => ({ ...p, access_level: 'edit' })));
+      // Get all features from role_permissions
+      const { data: features } = await supabase
+        .from('role_permissions')
+        .select('feature, feature_path')
+        .eq('role', 'Admin');
+      
+      if (features && features.length > 0) {
+        // Remove duplicates
+        const uniqueFeatures = [];
+        const seen = new Set();
+        features.forEach(f => {
+          if (!seen.has(f.feature)) {
+            seen.add(f.feature);
+            uniqueFeatures.push({
+              page_name: f.feature,
+              page_path: f.feature_path,
+              access_level: 'edit'
+            });
+          }
+        });
+        console.log(`✅ Admin user - returning ${uniqueFeatures.length} features`);
+        return res.json(uniqueFeatures);
+      }
     }
-    
+
+    // For regular users, get permissions based on their role
+    // First, get the user's role from the users table
+    const userRole = user?.role || 'User';
+
+    console.log(`🔑 Querying permissions for role: "${userRole}"`);
+
+    // Get permissions for this role from role_permissions table
+    const { data: rolePermissions, error: permError } = await supabase
+      .from('role_permissions')
+      .select('feature, feature_path, access_level')
+      .eq('role', userRole);
+
+    if (permError) throw permError;
+
+    console.log(`📊 Found ${rolePermissions?.length || 0} permissions for role "${userRole}"`);
+    console.log(`📋 Permissions:`, rolePermissions);
+
+    // Format the permissions
+    const formattedPermissions = rolePermissions.map(perm => ({
+      page_name: perm.feature,
+      page_path: perm.feature_path,
+      access_level: perm.access_level
+    }));
+
     res.json(formattedPermissions);
+  } catch (error) {
+    console.error('❌ Error fetching permissions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Debug endpoint to check database state (Admin only)
+app.get('/api/admin/debug/permissions', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    // Get all role_permissions
+    const { data: allPerms, error } = await supabase
+      .from('role_permissions')
+      .select('*')
+      .order('role')
+      .order('feature');
+
+    if (error) throw error;
+
+    // Get all users
+    const { data: users } = await supabase
+      .from('users')
+      .select('id, email, role');
+
+    res.json({
+      permissions: allPerms,
+      users: users,
+      uniqueRoles: [...new Set(allPerms.map(p => p.role))]
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { BarChart3, TrendingUp, DollarSign, FileText, Download, Calendar } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
+import { PermissionGuard } from '@/components/PermissionGuard'
 
 export default function ReportsPage() {
   const [selectedPeriod, setSelectedPeriod] = useState('month')
@@ -56,7 +57,8 @@ export default function ReportsPage() {
   ]
 
   return (
-    <div className="p-8">
+    <PermissionGuard pagePath="/dashboard/reports">
+      <div className="p-8">
       <div className="mb-8">
         <h2 className="text-3xl font-bold text-gray-900">Reports</h2>
         <p className="text-gray-600 mt-1">Generate and view financial reports</p>
@@ -219,5 +221,6 @@ export default function ReportsPage() {
         </CardContent>
       </Card>
     </div>
+    </PermissionGuard>
   )
 }

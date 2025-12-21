@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Search, ArrowUpCircle, ArrowDownCircle } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { PermissionGuard } from '@/components/PermissionGuard'
 
 interface Transaction {
   id: number
@@ -47,7 +48,8 @@ export default function TransactionsPage() {
   const netBalance = totalIncome - totalExpense
 
   return (
-    <div className="p-8">
+    <PermissionGuard pagePath="/dashboard/transactions">
+      <div className="p-8">
       <div className="mb-8">
         <h2 className="text-3xl font-bold text-gray-900">Transactions</h2>
         <p className="text-gray-600 mt-1">View all your financial transactions</p>
@@ -142,5 +144,6 @@ export default function TransactionsPage() {
         </CardContent>
       </Card>
     </div>
+    </PermissionGuard>
   )
 }
